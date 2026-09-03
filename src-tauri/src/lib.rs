@@ -89,6 +89,8 @@ pub fn run() {
 mod tests {
     use super::list;
     use super::read_file;
+    use super::sort_by_modified;
+    use super::sort_by_name;
     use std::collections::HashSet;
     use std::path::PathBuf;
 
@@ -160,5 +162,60 @@ mod tests {
                 "must not expose {op}"
             );
         }
+    }
+
+    fn listed_ab(entries: &[super::Entry]) -> Vec<String> {
+        entries
+            .iter()
+            .map(|e| e.relative_path.replace('\\', "/"))
+            .filter(|p| p == "a.md" || p == "b.md")
+            .collect()
+    }
+
+    fn ensure_a_md_older_than_b_md() {
+        use std::time::{Duration, SystemTime};
+
+        let root = workspace_fixture();
+        let a_path = root.join("a.md");
+        let b_path = root.join("b.md");
+        assert!(a_path.is_file(), "fixture a.md must exist");
+        assert!(b_path.is_file(), "fixture b.md must exist");
+        let now = SystemTime::now();
+        std::fs::OpenOptions::new()
+            .write(true)
+            .open(&a_path)
+            .expect("open a.md")
+            .set_modified(now - Duration::from_secs(120))
+            .expect("a.md must be older than b.md");
+        std::fs::OpenOptions::new()
+            .write(true)
+            .open(&b_path)
+            .expect("open b.md")
+            .set_modified(now)
+            .expect("b.md must be newer than a.md");
+    }
+
+    #[test]
+    fn sort_by_name_orders_a_md_before_b_md() {
+        ensure_a_md_older_than_b_md();
+        let entries =
+            sort_by_name(&workspace_fixture()).expect("sort_by_name should list the workspace");
+        assert_eq!(
+            listed_ab(&entries),
+            ["a.md", "b.md"],
+            "sort-by-name must order a.md before b.md"
+        );
+    }
+
+    #[test]
+    fn sort_by_modified_orders_newer_b_md_first() {
+        ensure_a_md_older_than_b_md();
+        let entries = sort_by_modified(&workspace_fixture())
+            .expect("sort_by_modified should list the workspace");
+        assert_eq!(
+            listed_ab(&entries),
+            ["b.md", "a.md"],
+            "sort-by-modified must order b.md first (newer)"
+        );
     }
 }
