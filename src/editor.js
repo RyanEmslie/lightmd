@@ -2,12 +2,14 @@ import { EditorView, keymap } from "@codemirror/view";
 import { defaultKeymap, history, historyKeymap } from "@codemirror/commands";
 import { markdown, markdownLanguage } from "@codemirror/lang-markdown";
 import { parseFrontmatter } from "./frontmatter.js";
+import { cancelAutosave, scheduleAutoSave } from "./autosave.js";
 
 const buffer = document.getElementById("editor-buffer");
 const parent = document.getElementById("editor-view");
 const frontmatterEl = document.getElementById("frontmatter");
 const previewBody = document.getElementById("preview-body");
 const preview = document.getElementById("preview");
+let applyingLoad = false;
 
 // Default on; Settings can toggle later.
 const showFrontmatterBlock = true;
@@ -45,8 +47,11 @@ const extensions = [
       const text = update.state.doc.toString();
       if (buffer) buffer.value = text;
       applyFrontmatter(text);
-      if (typeof window.lightmdSetDirty === "function") {
-        window.lightmdSetDirty(true);
+      if (!applyingLoad) {
+        if (typeof window.lightmdSetDirty === "function") {
+          window.lightmdSetDirty(true);
+        }
+        scheduleAutoSave();
       }
     }
   }),
@@ -94,14 +99,22 @@ function applyFrontmatter(text) {
 
 function setDoc(text) {
   const next = text ?? "";
-  if (view.state.doc.toString() !== next) {
-    view.dispatch({
-      changes: { from: 0, to: view.state.doc.length, insert: next },
-    });
+  cancelAutosave();
+  applyingLoad = true;
+  try {
+    if (view.state.doc.toString() !== next) {
+      view.dispatch({
+        changes: { from: 0, to: view.state.doc.length, insert: next },
+      });
+    }
+    applyFrontmatter(next);
+  } finally {
+    applyingLoad = false;
   }
-  applyFrontmatter(next);
 }
 
 applyFrontmatter(view.state.doc.toString());
 
 window.lightmdEditor = { view, setDoc, lineNumbers: editorDefaults.lineNumbers };
+window.lightmdScheduleAutoSave = scheduleAutoSave;
+window.lightmdCancelAutosave = cancelAutosave;
