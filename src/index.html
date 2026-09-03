@@ -258,9 +258,21 @@
         function setDirty(value) {
           dirty = value;
           if (dirtyDot) dirtyDot.hidden = !dirty;
+          if (!value && typeof window.lightmdCancelAutosave === "function") {
+            window.lightmdCancelAutosave();
+          }
         }
 
         window.lightmdSetDirty = setDirty;
+        Object.defineProperty(window, "lightmdWorkspace", {
+          get() {
+            return {
+              path: workspacePath,
+              relative: currentRelative,
+              contents: buffer.value,
+            };
+          },
+        });
 
         function folderPath(selected) {
           if (!selected) return null;
@@ -373,6 +385,9 @@
           if (!item || !fileList.contains(item)) return;
           if (item.dataset.dir === "true") return;
           if (!workspacePath) return;
+          if (typeof window.lightmdCancelAutosave === "function") {
+            window.lightmdCancelAutosave();
+          }
           const relative = item.dataset.path;
           const body = await window.__TAURI__.core.invoke("read_workspace_file", {
             path: workspacePath,
@@ -398,7 +413,12 @@
           setDirty(false);
         });
 
-        buffer.addEventListener("input", () => setDirty(true));
+        buffer.addEventListener("input", () => {
+          setDirty(true);
+          if (typeof window.lightmdScheduleAutoSave === "function") {
+            window.lightmdScheduleAutoSave();
+          }
+        });
       })();
     </script>
     <script src="./editor.bundle.js"></script>
