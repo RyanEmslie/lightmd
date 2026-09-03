@@ -122,3 +122,35 @@ export async function rewritePreviewImages(root, workspace, fileRelative) {
 export function renderPreview(markdown) {
   return md.render(markdown ?? "");
 }
+
+function isHttpHref(href) {
+  return /^https?:\/\//i.test(href);
+}
+
+export function openPreviewLink(url) {
+  const tauri = globalThis.__TAURI__;
+  if (!tauri) return;
+  if (tauri.opener && typeof tauri.opener.openUrl === "function") {
+    return tauri.opener.openUrl(url);
+  }
+  const invoke = tauri.core?.invoke;
+  if (typeof invoke === "function") {
+    return invoke("plugin:opener|open_url", { url });
+  }
+}
+
+export function handlePreviewClick(event) {
+  const target = event.target;
+  if (!target || typeof target.closest !== "function") return;
+  const anchor = target.closest("a");
+  if (!anchor) return;
+  const href = anchor.getAttribute("href") || "";
+  if (!isHttpHref(href)) return;
+  event.preventDefault();
+  void openPreviewLink(href);
+}
+
+export function bindPreviewLinks(root) {
+  if (!root || typeof root.addEventListener !== "function") return;
+  root.addEventListener("click", handlePreviewClick);
+}
