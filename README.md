@@ -4,6 +4,8 @@ Local Markdown/HTML reader. Desktop shell is [Tauri 2](https://v2.tauri.app/) wi
 
 **Atrium** is the documented v1 Linux build host. A Mac is not required for v1.
 
+v1 ships by clone-and-build from this README on Linux and Mac. There are no GitHub Releases and no installers.
+
 ## Prerequisites (Linux)
 
 - Node.js 20+ and npm
