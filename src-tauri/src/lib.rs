@@ -1,6 +1,6 @@
 use std::fs;
 use std::io;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 #[derive(Clone, Debug, serde::Serialize)]
 pub struct Entry {
@@ -82,7 +82,7 @@ fn listed_file(path: &Path) -> bool {
     )
 }
 
-pub fn read_file(root: &Path, relative: impl AsRef<Path>) -> io::Result<String> {
+fn confined_path(root: &Path, relative: impl AsRef<Path>) -> io::Result<PathBuf> {
     let root = root.canonicalize()?;
     let path = root.join(relative).canonicalize()?;
     path.strip_prefix(&root).map_err(|_| {
@@ -91,7 +91,19 @@ pub fn read_file(root: &Path, relative: impl AsRef<Path>) -> io::Result<String> 
             "path is outside workspace root",
         )
     })?;
-    fs::read_to_string(path)
+    Ok(path)
+}
+
+pub fn read_file(root: &Path, relative: impl AsRef<Path>) -> io::Result<String> {
+    fs::read_to_string(confined_path(root, relative)?)
+}
+
+pub fn write_file(
+    root: &Path,
+    relative: impl AsRef<Path>,
+    contents: impl AsRef<[u8]>,
+) -> io::Result<()> {
+    fs::write(confined_path(root, relative)?, contents)
 }
 
 #[tauri::command]
@@ -110,13 +122,19 @@ fn read_workspace_file(path: String, relative: String) -> Result<String, String>
     read_file(Path::new(&path), &relative).map_err(|e| e.to_string())
 }
 
+#[tauri::command]
+fn write_workspace_file(path: String, relative: String, contents: String) -> Result<(), String> {
+    write_file(Path::new(&path), &relative, contents).map_err(|e| e.to_string())
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .invoke_handler(tauri::generate_handler![
             list_workspace,
-            read_workspace_file
+            read_workspace_file,
+            write_workspace_file
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
