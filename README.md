@@ -53,6 +53,39 @@ npm run tauri build
 
 `tauri build` produces a Linux bundle under `src-tauri/target/release/bundle/` without a Mac.
 
+## Clone and build on macOS
+
+This Mac path is optional clone-and-build for a desktop machine. A Mac is not required for v1 (Atrium remains the daily TDD host). It is not a v1 Linux prerequisite.
+
+```sh
+git clone https://github.com/clearly-bots/lightmd
+cd lightmd
+```
+
+### Prerequisites (macOS)
+
+For Mac desktop Tauri only:
+
+- **Xcode Command Line Tools** — run `xcode-select --install`. The full Xcode app is not required. Apple Developer Program is not required. Signing and notarization are later (#32), not a v1 Mac clone-and-build step.
+- Rust **stable via [rustup](https://rustup.rs/)** (`rustup default stable`)
+- Node.js 20+ and npm
+
+```sh
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+. "$HOME/.cargo/env"
+rustup default stable
+```
+
+### Install, run, and build
+
+```sh
+npm install
+npm run tauri dev
+npm run tauri build
+```
+
+`tauri dev` and `tauri build` open a **LightMD** window that can Open Folder of local `.md` / `.html` files. macOS uses WKWebView; Linux uses WebKitGTK.
+
 ## Privacy / local-only
 
 v1 has no telemetry. File access is the opened workspace folder plus app config (theme, session, and layout). Theme, session, and layout stay on this machine (OS/localStorage). https links open via the system browser (`tauri-plugin-opener` / `openUrl`) only when the user clicks. There is no update check in v1.
