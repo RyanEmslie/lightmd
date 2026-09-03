@@ -7,6 +7,8 @@
     <style>
       :root {
         --border: color-mix(in srgb, CanvasText 18%, Canvas);
+        --space: 8px;
+        --indent: 8px;
       }
 
       html,
@@ -61,8 +63,52 @@
         padding: 0;
       }
 
+      #file-list ul {
+        list-style: none;
+        margin: 0;
+        padding-left: 8px;
+      }
+
+      #file-list details {
+        margin: 0;
+      }
+
+      #file-list li[data-dir="false"],
+      #file-list summary {
+        height: 28px;
+        line-height: 28px;
+        overflow: hidden;
+        white-space: nowrap;
+        text-overflow: ellipsis;
+      }
+
       #file-list li[data-dir="false"] {
         cursor: pointer;
+      }
+
+      #file-list summary {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        cursor: pointer;
+        list-style: none;
+      }
+
+      #file-list summary::-webkit-details-marker {
+        display: none;
+      }
+
+      #file-list summary::marker {
+        content: none;
+      }
+
+      #file-list summary::before {
+        content: "▸";
+        flex: none;
+      }
+
+      #file-list details[open] > summary::before {
+        content: "▾";
       }
 
       #editor {
@@ -113,14 +159,55 @@
           return null;
         }
 
+        function treeFrom(entries) {
+          const root = { children: [] };
+          const nodes = new Map();
+          nodes.set("", root);
+
+          for (const entry of entries) {
+            const parts = entry.relative_path.split("/");
+            const parentPath = parts.slice(0, -1).join("/");
+            const parent = nodes.get(parentPath) || root;
+            const node = {
+              name: parts[parts.length - 1],
+              path: entry.relative_path,
+              is_dir: entry.is_dir,
+              children: [],
+            };
+            parent.children.push(node);
+            if (entry.is_dir) {
+              nodes.set(entry.relative_path, node);
+            }
+          }
+          return root;
+        }
+
+        function appendNode(node, list) {
+          const item = document.createElement("li");
+          item.dataset.path = node.path;
+          item.dataset.dir = node.is_dir ? "true" : "false";
+          if (node.is_dir) {
+            const details = document.createElement("details");
+            const summary = document.createElement("summary");
+            summary.textContent = node.name;
+            details.appendChild(summary);
+            const nested = document.createElement("ul");
+            for (const child of node.children) {
+              appendNode(child, nested);
+            }
+            details.appendChild(nested);
+            item.appendChild(details);
+          } else {
+            item.textContent = node.name;
+          }
+          list.appendChild(item);
+        }
+
         function render(entries) {
           fileList.replaceChildren();
-          for (const entry of entries) {
-            const item = document.createElement("li");
-            item.textContent = entry.relative_path;
-            item.dataset.path = entry.relative_path;
-            item.dataset.dir = entry.is_dir ? "true" : "false";
-            fileList.appendChild(item);
+          const tree = treeFrom(entries);
+          for (const child of tree.children) {
+            appendNode(child, fileList);
           }
         }
 
