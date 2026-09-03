@@ -9,6 +9,7 @@
         --border: color-mix(in srgb, CanvasText 18%, Canvas);
         --space: 8px;
         --indent: 8px;
+        --accent: AccentColor;
       }
 
       html,
@@ -129,6 +130,26 @@
         flex-direction: column;
       }
 
+      #editor-chrome {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        flex: none;
+        margin: 0 0 8px;
+      }
+
+      #dirty {
+        display: inline-block;
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        background: var(--accent);
+      }
+
+      #dirty[hidden] {
+        display: none;
+      }
+
       #frontmatter {
         flex: none;
         display: flex;
@@ -208,6 +229,10 @@
       </aside>
       <main id="editor" class="pane">
         <textarea id="editor-buffer"></textarea>
+        <div id="editor-chrome">
+          <button type="button" id="save">Save</button>
+          <span id="dirty" hidden></span>
+        </div>
         <div id="frontmatter" hidden></div>
         <div id="editor-view"></div>
         <div class="splitter" role="separator" aria-orientation="vertical"></div>
@@ -219,12 +244,23 @@
     <script>
       (function () {
         const button = document.getElementById("open-folder");
+        const saveButton = document.getElementById("save");
+        const dirtyDot = document.getElementById("dirty");
         const fileList = document.getElementById("file-list");
         const buffer = document.getElementById("editor-buffer");
         const sortSelect = document.getElementById("explorer-sort");
         const extensionsToggle = document.getElementById("show-extensions");
         let workspacePath = null;
         let lastEntries = [];
+        let currentRelative = null;
+        let dirty = false;
+
+        function setDirty(value) {
+          dirty = value;
+          if (dirtyDot) dirtyDot.hidden = !dirty;
+        }
+
+        window.lightmdSetDirty = setDirty;
 
         function folderPath(selected) {
           if (!selected) return null;
@@ -342,11 +378,27 @@
             path: workspacePath,
             relative,
           });
+          currentRelative = relative;
           buffer.value = body;
           if (window.lightmdEditor) {
             window.lightmdEditor.setDoc(body);
           }
+          setDirty(false);
         });
+
+        saveButton.addEventListener("click", async () => {
+          if (!workspacePath || !currentRelative) return;
+          const tauri = window.__TAURI__;
+          if (!tauri) return;
+          await tauri.core.invoke("write_workspace_file", {
+            path: workspacePath,
+            relative: currentRelative,
+            contents: buffer.value,
+          });
+          setDirty(false);
+        });
+
+        buffer.addEventListener("input", () => setDirty(true));
       })();
     </script>
     <script src="./editor.bundle.js"></script>

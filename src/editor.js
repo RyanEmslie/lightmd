@@ -45,6 +45,9 @@ const extensions = [
       const text = update.state.doc.toString();
       if (buffer) buffer.value = text;
       applyFrontmatter(text);
+      if (typeof window.lightmdSetDirty === "function") {
+        window.lightmdSetDirty(true);
+      }
     }
   }),
 ];

@@ -1,6 +1,6 @@
 use std::fs;
 use std::io;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 #[derive(Clone, Debug, serde::Serialize)]
 pub struct Entry {
@@ -82,7 +82,7 @@ fn listed_file(path: &Path) -> bool {
     )
 }
 
-pub fn read_file(root: &Path, relative: impl AsRef<Path>) -> io::Result<String> {
+fn confined_path(root: &Path, relative: impl AsRef<Path>) -> io::Result<PathBuf> {
     let root = root.canonicalize()?;
     let path = root.join(relative).canonicalize()?;
     path.strip_prefix(&root).map_err(|_| {
@@ -91,7 +91,19 @@ pub fn read_file(root: &Path, relative: impl AsRef<Path>) -> io::Result<String> 
             "path is outside workspace root",
         )
     })?;
-    fs::read_to_string(path)
+    Ok(path)
+}
+
+pub fn read_file(root: &Path, relative: impl AsRef<Path>) -> io::Result<String> {
+    fs::read_to_string(confined_path(root, relative)?)
+}
+
+pub fn write_file(
+    root: &Path,
+    relative: impl AsRef<Path>,
+    contents: impl AsRef<[u8]>,
+) -> io::Result<()> {
+    fs::write(confined_path(root, relative)?, contents)
 }
 
 #[tauri::command]
@@ -110,13 +122,19 @@ fn read_workspace_file(path: String, relative: String) -> Result<String, String>
     read_file(Path::new(&path), &relative).map_err(|e| e.to_string())
 }
 
+#[tauri::command]
+fn write_workspace_file(path: String, relative: String, contents: String) -> Result<(), String> {
+    write_file(Path::new(&path), &relative, contents).map_err(|e| e.to_string())
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .invoke_handler(tauri::generate_handler![
             list_workspace,
-            read_workspace_file
+            read_workspace_file,
+            write_workspace_file
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
@@ -128,6 +146,7 @@ mod tests {
     use super::read_file;
     use super::sort_by_modified;
     use super::sort_by_name;
+    use super::write_file;
     use std::collections::HashSet;
     use std::path::PathBuf;
 
@@ -137,6 +156,17 @@ mod tests {
             .join("tests")
             .join("fixtures")
             .join("workspace")
+    }
+
+    struct RestoreOnDrop {
+        path: PathBuf,
+        original: String,
+    }
+
+    impl Drop for RestoreOnDrop {
+        fn drop(&mut self) {
+            let _ = std::fs::write(&self.path, &self.original);
+        }
     }
 
     #[test]
@@ -181,6 +211,57 @@ mod tests {
             result.is_err(),
             "read_file(workspace_root, \"../outside.md\") must be Err, got Ok({:?})",
             result.ok()
+        );
+    }
+
+    #[test]
+    fn write_file_persists_so_read_file_returns_the_buffer() {
+        let root = workspace_fixture();
+        let relative = "note.md";
+        let path = root.join(relative);
+        let original =
+            std::fs::read_to_string(&path).expect("fixture note.md must exist");
+        let _restore = RestoreOnDrop {
+            path,
+            original,
+        };
+        let contents = "written by write_file test\n";
+        write_file(&root, relative, contents)
+            .expect("write_file should write the buffer");
+        let body = read_file(&root, relative)
+            .expect("read_file should read back the written buffer");
+        assert_eq!(
+            body.replace('\r', ""),
+            contents,
+            "write_file(root, relative, contents) must persist so a later read_file returns that text"
+        );
+    }
+
+    #[test]
+    fn write_file_rejects_parent_relative_path() {
+        let root = workspace_fixture();
+        let outside = root.join("..").join("outside.md");
+        let original =
+            std::fs::read_to_string(&outside).expect("fixture outside.md must exist");
+        let _restore = RestoreOnDrop {
+            path: outside.clone(),
+            original: original.clone(),
+        };
+        let result = write_file(
+            &root,
+            "../outside.md",
+            "should not write outside workspace\n",
+        );
+        assert!(
+            result.is_err(),
+            "write_file(workspace_root, \"../outside.md\", ...) must be Err, got Ok({:?})",
+            result.ok()
+        );
+        let after = std::fs::read_to_string(&outside)
+            .expect("outside.md should still be readable");
+        assert_eq!(
+            after, original,
+            "write_file must not mutate a path outside the workspace root"
         );
     }
 
