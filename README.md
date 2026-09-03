@@ -2,17 +2,20 @@
 
 Local Markdown/HTML reader. Desktop shell is [Tauri 2](https://v2.tauri.app/) with WebKitGTK on Linux. Not Electron.
 
-v1 is developed and tested on **Atrium** (Linux). A Mac is not required to run this scaffold.
+**Atrium** is the documented v1 Linux build host. A Mac is not required for v1.
 
 ## Prerequisites (Linux)
 
 - Node.js 20+ and npm
-- Rust **stable via [rustup](https://rustup.rs/)** (Debian’s `rustc` 1.85 is too old for Tauri 2)
+- Rust **stable via [rustup](https://rustup.rs/)** — Debian’s `rustc` is too old for Tauri 2; do not use the distro package
 - WebKitGTK 4.1 and GTK 3 development packages
+
+Install rustup stable from [rustup.rs](https://rustup.rs/):
 
 ```sh
 curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
 . "$HOME/.cargo/env"
+rustup default stable
 ```
 
 Debian / Ubuntu (Atrium is Debian):
@@ -31,17 +34,16 @@ sudo apt install libwebkit2gtk-4.1-dev \
   pkg-config
 ```
 
-See [Tauri Linux prerequisites](https://v2.tauri.app/start/prerequisites/#linux) for Arch, Fedora, and others.
+See [Tauri Linux prerequisites](https://v2.tauri.app/start/prerequisites/#linux) for Arch, Fedora, and other distros.
 
-## Run
+## Install and run
 
 ```sh
 npm install
-npm test
 npm run tauri dev
 ```
 
-`tauri dev` opens a native window titled **LightMD**.
+`npm test` is optional. `tauri dev` opens a native window titled **LightMD**.
 
 ## Build
 
@@ -49,4 +51,4 @@ npm run tauri dev
 npm run tauri build
 ```
 
-That produces a Linux bundle under `src-tauri/target/release/bundle/` without a Mac.
+`tauri build` produces a Linux bundle under `src-tauri/target/release/bundle/` without a Mac.
