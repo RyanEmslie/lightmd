@@ -1242,3 +1242,151 @@ test("explorer editor panes save and themes are reachable from the keyboard", ()
     );
   }
 });
+
+function cycleFnPersistsTheme(body) {
+  const text = String(body || "");
+  if (/persistSession\s*\(/.test(text)) return true;
+  const assign = /\.value\s*=/g;
+  let m;
+  while ((m = assign.exec(text))) {
+    const after = text.slice(m.index);
+    const dispatched =
+      /dispatchEvent\s*\(\s*["']change["']/.test(after) ||
+      /dispatchEvent\s*\(\s*new\s+(?:Custom)?Event\s*\(\s*["']change["']/.test(
+        after,
+      ) ||
+      /new\s+Event\s*\(\s*["']change["']/.test(after);
+    if (dispatched) return true;
+  }
+  return false;
+}
+
+function keyboardSettingsRows(section) {
+  const rows = [];
+  const re =
+    /<(li|div)\b(?=[^>]*\bclass=["'][^"']*\bsettings-row\b)[^>]*>([\s\S]*?)<\/\1>/gi;
+  let m;
+  while ((m = re.exec(section))) {
+    const text = String(m[2] || "")
+      .replace(/<[^>]+>/g, " ")
+      .replace(/&nbsp;/gi, " ")
+      .replace(/\s+/g, " ")
+      .trim();
+    rows.push(text);
+  }
+  return rows;
+}
+
+test("keyboard theme cycle persists", async () => {
+  const files = loadSources();
+  const keyboardFile = files.find((f) => /keyboard\.(js|mjs|cjs)$/i.test(f.path));
+  const src = keyboardFile?.text || joinedSource(files);
+  const editorBodies = fnBodies(src, "cycleEditorTheme");
+  const previewBodies = fnBodies(src, "cyclePreviewTheme");
+  const staticOk =
+    editorBodies.length > 0 &&
+    previewBodies.length > 0 &&
+    editorBodies.every(cycleFnPersistsTheme) &&
+    previewBodies.every(cycleFnPersistsTheme);
+
+  let runtimeOk = true;
+  let ranRuntime = false;
+  try {
+    const rt = await loadRuntime();
+    const binds = keydownBinds(rt.listeners);
+    if (binds.length) {
+      ranRuntime = true;
+      const persistCalls = [];
+      const wrap = (obj, name) => {
+        if (!obj || typeof obj[name] !== "function") return;
+        const orig = obj[name];
+        obj[name] = function wrappedPersist(...args) {
+          persistCalls.push(args);
+          return orig.apply(this, args);
+        };
+      };
+      wrap(globalThis, "lightmdPersistSession");
+      wrap(globalThis, "persistSession");
+      if (globalThis.window && globalThis.window !== globalThis) {
+        wrap(globalThis.window, "lightmdPersistSession");
+        wrap(globalThis.window, "persistSession");
+      }
+      for (const mod of rt.mods || []) {
+        wrap(mod, "persistSession");
+      }
+
+      dispatchKeydown(rt.listeners, {
+        key: "ArrowRight",
+        code: "ArrowRight",
+        keyCode: 39,
+        ctrlKey: true,
+        altKey: true,
+        shiftKey: false,
+        metaKey: false,
+      });
+      dispatchKeydown(rt.listeners, {
+        key: "ArrowRight",
+        code: "ArrowRight",
+        keyCode: 39,
+        ctrlKey: true,
+        altKey: true,
+        shiftKey: true,
+        metaKey: false,
+      });
+
+      const editorTheme =
+        rt.el("editor-theme").value || themeState(rt.mods)?.editorTheme;
+      const previewTheme =
+        rt.el("preview-theme").value || themeState(rt.mods)?.previewTheme;
+
+      const calledWith = (key, value) =>
+        persistCalls.some((args) =>
+          args.some(
+            (arg) => arg && typeof arg === "object" && arg[key] === value,
+          ),
+        );
+
+      let stored = null;
+      try {
+        const raw = globalThis.localStorage?.getItem("lightmd.session");
+        stored = raw ? JSON.parse(raw) : null;
+      } catch {
+        stored = null;
+      }
+
+      runtimeOk =
+        (calledWith("editorTheme", editorTheme) &&
+          calledWith("previewTheme", previewTheme)) ||
+        (stored &&
+          stored.editorTheme === editorTheme &&
+          stored.previewTheme === previewTheme);
+    }
+  } catch {
+    // loadRuntime may already have bound the singleton; static scan still fails.
+  }
+
+  assert.ok(
+    staticOk,
+    "cycleEditorTheme and cyclePreviewTheme must persistSession(...) or dispatchEvent(\"change\") / new Event(\"change\") after setting select.value",
+  );
+  if (ranRuntime) {
+    assert.ok(
+      runtimeOk,
+      "Ctrl+Alt+ArrowRight and Ctrl+Alt+Shift+ArrowRight must persist the new editorTheme/previewTheme via persistSession or localStorage lightmd.session",
+    );
+  }
+});
+
+test("settings keyboard list has no unlabeled Toggle panes row", () => {
+  const files = loadSources();
+  const blob = settingsBlob(files);
+  const section = keyboardSection(blob);
+  const unlabeled = keyboardSettingsRows(section).filter((text) =>
+    /^toggle panes$/i.test(text),
+  );
+  assert.equal(
+    unlabeled.length,
+    0,
+    'Keyboard section must not contain a settings-row whose text is exactly "Toggle panes" (Ctrl+1/2/3 already document pane toggles)',
+  );
+});
