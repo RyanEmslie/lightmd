@@ -6,6 +6,7 @@ import { cancelAutosave, scheduleAutoSave } from "./autosave.js";
 import { findExtension, runFind } from "./find.js";
 import { preview as previewConfig, renderPreview, rewritePreviewImages, bindPreviewLinks } from "./preview.js";
 import { isHtmlFile, showHtmlViewer, hideHtmlViewer } from "./html-viewer.js";
+import { applyTheme } from "./palettes.js";
 
 const buffer = document.getElementById("editor-buffer");
 const parent = document.getElementById("editor-view");
@@ -26,6 +27,8 @@ const theme = EditorView.theme({
   "&": {
     height: "100%",
     fontSize: "14px",
+    backgroundColor: "var(--bg)",
+    color: "var(--fg)",
   },
   ".cm-scroller": {
     fontFamily: "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace",
@@ -38,6 +41,12 @@ const theme = EditorView.theme({
     fontSize: "14px",
     lineHeight: "1.45",
   },
+  ".cm-selectionBackground": {
+    backgroundColor: "var(--accent)",
+  },
+  "&.cm-focused > .cm-scroller > .cm-selectionLayer .cm-selectionBackground": {
+    backgroundColor: "var(--accent)",
+  },
   ".cm-searchMatch": {
     backgroundColor: "#ffff0054",
   },
@@ -45,6 +54,8 @@ const theme = EditorView.theme({
     backgroundColor: "#ff6a0054",
   },
 });
+
+applyTheme();
 
 const extensions = [
   history(),
