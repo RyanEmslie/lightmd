@@ -6,19 +6,33 @@
     <title>LightMD</title>
     <style>
       :root {
-        --border: color-mix(in srgb, CanvasText 18%, Canvas);
+        --bg: #1e1e1e;
+        --bg-elevated: #252526;
+        --fg: #d4d4d4;
+        --fg-muted: #9d9d9d;
+        --border: #3c3c3c;
+        --accent: #007acc;
+        --danger: #f48771;
         --space: 8px;
         --indent: 8px;
-        --accent: AccentColor;
+        color-scheme: dark;
       }
 
       html,
       body {
         margin: 0;
         height: 100%;
-        background: Canvas;
-        color: CanvasText;
+        background: var(--bg);
+        color: var(--fg);
         font: 13px/1.25 system-ui, sans-serif;
+      }
+
+      :focus-visible {
+        outline: 2px solid var(--accent);
+      }
+
+      ::selection {
+        background: var(--accent);
       }
 
       #shell {
@@ -48,6 +62,8 @@
       #explorer {
         display: flex;
         flex-direction: column;
+        background: var(--bg);
+        color: var(--fg);
       }
 
       #open-folder {
@@ -128,6 +144,8 @@
       #preview {
         display: flex;
         flex-direction: column;
+        background: var(--bg);
+        color: var(--fg);
       }
 
       #editor-chrome {
@@ -165,8 +183,13 @@
         margin: 0 0 8px;
         padding: 0 0 8px;
         border-bottom: 1px solid var(--border);
+        background: var(--bg-elevated);
         font-size: 12px;
         line-height: 1.25;
+      }
+
+      #frontmatter .fm-val {
+        color: var(--fg-muted);
       }
 
       #frontmatter[hidden] {
@@ -216,7 +239,7 @@
         min-height: 0;
         width: 100%;
         border: 0;
-        background: Canvas;
+        background: var(--bg);
       }
 
       #html-viewer[hidden] {
@@ -238,6 +261,7 @@
 
       #html-js-warn {
         margin: 0;
+        color: var(--danger);
       }
 
       #html-js-warn[hidden] {
