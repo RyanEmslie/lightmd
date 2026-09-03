@@ -27,6 +27,11 @@
         font: 13px/1.25 system-ui, sans-serif;
       }
 
+      body {
+        display: flex;
+        flex-direction: column;
+      }
+
       :focus-visible {
         outline: 2px solid var(--accent);
       }
@@ -38,7 +43,8 @@
       #shell {
         display: grid;
         grid-template-columns: 240px 1fr 1fr;
-        height: 100%;
+        flex: 1;
+        min-height: 0;
       }
 
       .pane {
@@ -177,6 +183,33 @@
 
       #dirty[hidden] {
         display: none;
+      }
+
+      #status-strip {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        flex: none;
+        height: 24px;
+        padding: 0 12px;
+        box-sizing: border-box;
+        border-top: 1px solid var(--border);
+        background: var(--bg-elevated);
+        color: var(--fg-muted);
+        overflow: hidden;
+      }
+
+      #status-path {
+        overflow: hidden;
+        white-space: nowrap;
+        text-overflow: ellipsis;
+        min-width: 0;
+        flex: 1;
+      }
+
+      #word-count {
+        flex: none;
+        margin-left: auto;
       }
 
       #find-query {
@@ -332,7 +365,6 @@
         <textarea id="editor-buffer"></textarea>
         <div id="editor-chrome">
           <button type="button" id="save">Save</button>
-          <span id="dirty" hidden></span>
           <button type="button" id="find">Find</button>
           <input type="search" id="find-query" placeholder="Find in file" autocomplete="off" />
           <label for="editor-theme">Editor theme</label>
@@ -378,11 +410,17 @@
         <iframe id="html-viewer" sandbox hidden></iframe>
       </section>
     </div>
+    <footer id="status-strip">
+      <span id="status-path"></span>
+      <span id="dirty" hidden></span>
+      <span id="word-count"></span>
+    </footer>
     <script>
       (function () {
         const button = document.getElementById("open-folder");
         const saveButton = document.getElementById("save");
         const dirtyDot = document.getElementById("dirty");
+        const statusPath = document.getElementById("status-path");
         const fileList = document.getElementById("file-list");
         const buffer = document.getElementById("editor-buffer");
         const sortSelect = document.getElementById("explorer-sort");
@@ -531,6 +569,7 @@
             relative,
           });
           currentRelative = relative;
+          if (statusPath) statusPath.textContent = currentRelative;
           buffer.value = body;
           if (window.lightmdEditor) {
             window.lightmdEditor.setDoc(body);

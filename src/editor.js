@@ -13,7 +13,15 @@ const parent = document.getElementById("editor-view");
 const frontmatterEl = document.getElementById("frontmatter");
 const previewBody = document.getElementById("preview-body");
 const previewPane = document.getElementById("preview");
+const wordCountEl = document.getElementById("word-count");
 let applyingLoad = false;
+
+function updateWordCount(text) {
+  if (!wordCountEl) return;
+  const trimmed = (text ?? "").trim();
+  const n = trimmed ? trimmed.split(/\s+/).length : 0;
+  wordCountEl.textContent = `${n} words`;
+}
 
 // Default on; Settings can toggle later.
 const showFrontmatterBlock = true;
@@ -67,6 +75,7 @@ const extensions = [
       const text = update.state.doc.toString();
       if (buffer) buffer.value = text;
       applyFrontmatter(text, previewConfig.live);
+      updateWordCount(text);
       if (!applyingLoad) {
         if (typeof window.lightmdSetDirty === "function") {
           window.lightmdSetDirty(true);
@@ -152,12 +161,14 @@ function setDoc(text) {
       });
     }
     applyFrontmatter(next);
+    updateWordCount(next);
   } finally {
     applyingLoad = false;
   }
 }
 
 applyFrontmatter(view.state.doc.toString());
+updateWordCount(view.state.doc.toString());
 if (previewBody) bindPreviewLinks(previewBody);
 
 const findButton = document.getElementById("find");
