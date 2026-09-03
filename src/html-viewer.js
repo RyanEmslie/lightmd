@@ -51,6 +51,13 @@ function bindToggle() {
   bound = true;
   control.addEventListener("change", () => {
     setHtmlJsEnabled(!!control.checked);
+    import("./session.js")
+      .then((m) => {
+        if (typeof m.persistSession === "function") {
+          m.persistSession({ htmlJs: !!control.checked });
+        }
+      })
+      .catch(() => {});
   });
 }
 
