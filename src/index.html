@@ -588,10 +588,14 @@
       </div>
       <h2>Keyboard</h2>
       <ul>
-        <li class="settings-row">Open folder</li>
-        <li class="settings-row">Save</li>
-        <li class="settings-row">Toggle panes</li>
-        <li class="settings-row">Find</li>
+        <li class="settings-row">Open folder Ctrl+O</li>
+        <li class="settings-row">Save Ctrl+S</li>
+        <li class="settings-row">Find Ctrl+F</li>
+        <li class="settings-row">Toggle explorer Ctrl+1 (pane toggle)</li>
+        <li class="settings-row">Toggle editor Ctrl+2</li>
+        <li class="settings-row">Toggle preview Ctrl+3</li>
+        <li class="settings-row">Cycle editor theme Ctrl+Alt+Left / Ctrl+Alt+Right</li>
+        <li class="settings-row">Cycle preview theme Ctrl+Alt+Shift+Left / Ctrl+Alt+Shift+Right</li>
       </ul>
       <h2>About</h2>
       <div class="settings-row">Version 0.0.0</div>
@@ -601,7 +605,7 @@
       </div>
     </section>
     <div id="shell">
-      <aside id="explorer" class="pane">
+      <aside id="explorer" class="pane" tabindex="0">
         <button type="button" id="open-folder">Open Folder</button>
         <div id="explorer-toolbar">
           <button type="button" data-pane-toggle="explorer" aria-pressed="true">Hide</button>
@@ -618,7 +622,7 @@
         <ul id="file-list"></ul>
         <div class="splitter" role="separator" aria-orientation="vertical"></div>
       </aside>
-      <main id="editor" class="pane">
+      <main id="editor" class="pane" tabindex="0">
         <textarea id="editor-buffer"></textarea>
         <div id="editor-chrome">
           <button type="button" data-pane-toggle="editor" aria-pressed="true">Hide</button>
@@ -641,7 +645,7 @@
         <div id="editor-view"></div>
         <div class="splitter" role="separator" aria-orientation="vertical"></div>
       </main>
-      <section id="preview" class="pane">
+      <section id="preview" class="pane" tabindex="0">
         <div id="preview-chrome">
           <button type="button" data-pane-toggle="preview" aria-pressed="true">Hide</button>
           <label for="preview-theme">Preview theme</label>
