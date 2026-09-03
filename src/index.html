@@ -54,6 +54,18 @@
         align-self: start;
       }
 
+      #explorer-toolbar {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 8px;
+        margin-top: 8px;
+      }
+
+      #explorer-sort {
+        font: inherit;
+      }
+
       #file-list {
         flex: 1;
         min-height: 0;
@@ -135,6 +147,17 @@
     <div id="shell">
       <aside id="explorer" class="pane">
         <button type="button" id="open-folder">Open Folder</button>
+        <div id="explorer-toolbar">
+          <label for="explorer-sort">Sort</label>
+          <select id="explorer-sort">
+            <option value="name">Name</option>
+            <option value="modified">Modified</option>
+          </select>
+          <label>
+            <input type="checkbox" id="show-extensions" checked />
+            Extensions
+          </label>
+        </div>
         <ul id="file-list"></ul>
         <div class="splitter" role="separator" aria-orientation="vertical"></div>
       </aside>
@@ -149,7 +172,10 @@
         const button = document.getElementById("open-folder");
         const fileList = document.getElementById("file-list");
         const buffer = document.getElementById("editor-buffer");
+        const sortSelect = document.getElementById("explorer-sort");
+        const extensionsToggle = document.getElementById("show-extensions");
         let workspacePath = null;
+        let lastEntries = [];
 
         function folderPath(selected) {
           if (!selected) return null;
@@ -159,6 +185,13 @@
           return null;
         }
 
+        function displayName(name, isDir) {
+          if (extensionsToggle.checked || isDir) return name;
+          const dot = name.lastIndexOf(".");
+          if (dot <= 0) return name;
+          return name.slice(0, dot);
+        }
+
         function treeFrom(entries) {
           const root = { children: [] };
           const nodes = new Map();
@@ -166,18 +199,20 @@
 
           for (const entry of entries) {
             const parts = entry.relative_path.split("/");
-            const parentPath = parts.slice(0, -1).join("/");
-            const parent = nodes.get(parentPath) || root;
             const node = {
               name: parts[parts.length - 1],
               path: entry.relative_path,
               is_dir: entry.is_dir,
               children: [],
             };
-            parent.children.push(node);
-            if (entry.is_dir) {
-              nodes.set(entry.relative_path, node);
-            }
+            nodes.set(entry.relative_path, node);
+          }
+
+          for (const entry of entries) {
+            const parts = entry.relative_path.split("/");
+            const parentPath = parts.slice(0, -1).join("/");
+            const parent = nodes.get(parentPath) || root;
+            parent.children.push(nodes.get(entry.relative_path));
           }
           return root;
         }
@@ -189,7 +224,7 @@
           if (node.is_dir) {
             const details = document.createElement("details");
             const summary = document.createElement("summary");
-            summary.textContent = node.name;
+            summary.textContent = displayName(node.name, true);
             details.appendChild(summary);
             const nested = document.createElement("ul");
             for (const child of node.children) {
@@ -198,7 +233,7 @@
             details.appendChild(nested);
             item.appendChild(details);
           } else {
-            item.textContent = node.name;
+            item.textContent = displayName(node.name, false);
           }
           list.appendChild(item);
         }
@@ -222,15 +257,30 @@
           });
         }
 
+        async function loadWorkspace(path) {
+          const entries = await window.__TAURI__.core.invoke("list_workspace", {
+            path,
+            sort: sortSelect.value,
+          });
+          lastEntries = entries;
+          render(entries);
+        }
+
         button.addEventListener("click", async () => {
           const selected = await pickFolder();
           const path = folderPath(selected);
           if (!path) return;
           workspacePath = path;
-          const entries = await window.__TAURI__.core.invoke("list_workspace", {
-            path,
-          });
-          render(entries);
+          await loadWorkspace(path);
+        });
+
+        sortSelect.addEventListener("change", async () => {
+          if (!workspacePath) return;
+          await loadWorkspace(workspacePath);
+        });
+
+        extensionsToggle.addEventListener("change", () => {
+          render(lastEntries);
         });
 
         fileList.addEventListener("click", async (event) => {

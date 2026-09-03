@@ -14,6 +14,37 @@ pub fn list(root: &Path) -> io::Result<Vec<Entry>> {
     Ok(entries)
 }
 
+pub fn sort_by_name(root: &Path) -> io::Result<Vec<Entry>> {
+    let mut entries = list(root)?;
+    entries.sort_by(|a, b| {
+        a.relative_path
+            .to_ascii_lowercase()
+            .cmp(&b.relative_path.to_ascii_lowercase())
+    });
+    Ok(entries)
+}
+
+pub fn sort_by_modified(root: &Path) -> io::Result<Vec<Entry>> {
+    let mut entries = list(root)?;
+    entries.sort_by(|a, b| {
+        modified_time(root, &b.relative_path)
+            .cmp(&modified_time(root, &a.relative_path))
+            .then_with(|| {
+                a.relative_path
+                    .to_ascii_lowercase()
+                    .cmp(&b.relative_path.to_ascii_lowercase())
+            })
+    });
+    Ok(entries)
+}
+
+fn modified_time(root: &Path, relative: &str) -> std::time::SystemTime {
+    root.join(relative)
+        .metadata()
+        .and_then(|m| m.modified())
+        .unwrap_or(std::time::UNIX_EPOCH)
+}
+
 fn collect(root: &Path, dir: &Path, entries: &mut Vec<Entry>) -> io::Result<()> {
     for child in fs::read_dir(dir)? {
         let child = child?;
@@ -64,8 +95,14 @@ pub fn read_file(root: &Path, relative: impl AsRef<Path>) -> io::Result<String> 
 }
 
 #[tauri::command]
-fn list_workspace(path: String) -> Result<Vec<Entry>, String> {
-    list(Path::new(&path)).map_err(|e| e.to_string())
+fn list_workspace(path: String, sort: Option<String>) -> Result<Vec<Entry>, String> {
+    let root = Path::new(&path);
+    match sort.as_deref() {
+        Some("modified") => sort_by_modified(root),
+        Some("name") => sort_by_name(root),
+        _ => list(root),
+    }
+    .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -89,6 +126,8 @@ pub fn run() {
 mod tests {
     use super::list;
     use super::read_file;
+    use super::sort_by_modified;
+    use super::sort_by_name;
     use std::collections::HashSet;
     use std::path::PathBuf;
 
@@ -110,6 +149,7 @@ mod tests {
         let expected: HashSet<(String, bool)> = [
             ("a.md".into(), false),
             ("b.html".into(), false),
+            ("b.md".into(), false),
             ("c.htm".into(), false),
             ("note.md".into(), false),
             ("nested".into(), true),
@@ -160,5 +200,60 @@ mod tests {
                 "must not expose {op}"
             );
         }
+    }
+
+    fn listed_ab(entries: &[super::Entry]) -> Vec<String> {
+        entries
+            .iter()
+            .map(|e| e.relative_path.replace('\\', "/"))
+            .filter(|p| p == "a.md" || p == "b.md")
+            .collect()
+    }
+
+    fn ensure_a_md_older_than_b_md() {
+        use std::time::{Duration, SystemTime};
+
+        let root = workspace_fixture();
+        let a_path = root.join("a.md");
+        let b_path = root.join("b.md");
+        assert!(a_path.is_file(), "fixture a.md must exist");
+        assert!(b_path.is_file(), "fixture b.md must exist");
+        let now = SystemTime::now();
+        std::fs::OpenOptions::new()
+            .write(true)
+            .open(&a_path)
+            .expect("open a.md")
+            .set_modified(now - Duration::from_secs(120))
+            .expect("a.md must be older than b.md");
+        std::fs::OpenOptions::new()
+            .write(true)
+            .open(&b_path)
+            .expect("open b.md")
+            .set_modified(now)
+            .expect("b.md must be newer than a.md");
+    }
+
+    #[test]
+    fn sort_by_name_orders_a_md_before_b_md() {
+        ensure_a_md_older_than_b_md();
+        let entries =
+            sort_by_name(&workspace_fixture()).expect("sort_by_name should list the workspace");
+        assert_eq!(
+            listed_ab(&entries),
+            ["a.md", "b.md"],
+            "sort-by-name must order a.md before b.md"
+        );
+    }
+
+    #[test]
+    fn sort_by_modified_orders_newer_b_md_first() {
+        ensure_a_md_older_than_b_md();
+        let entries = sort_by_modified(&workspace_fixture())
+            .expect("sort_by_modified should list the workspace");
+        assert_eq!(
+            listed_ab(&entries),
+            ["b.md", "a.md"],
+            "sort-by-modified must order b.md first (newer)"
+        );
     }
 }
