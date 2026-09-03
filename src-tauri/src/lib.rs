@@ -52,7 +52,15 @@ fn listed_file(path: &Path) -> bool {
 }
 
 pub fn read_file(root: &Path, relative: impl AsRef<Path>) -> io::Result<String> {
-    fs::read_to_string(root.join(relative))
+    let root = root.canonicalize()?;
+    let path = root.join(relative).canonicalize()?;
+    path.strip_prefix(&root).map_err(|_| {
+        io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "path is outside workspace root",
+        )
+    })?;
+    fs::read_to_string(path)
 }
 
 #[tauri::command]
