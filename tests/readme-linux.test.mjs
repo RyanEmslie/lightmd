@@ -44,6 +44,43 @@ function isNegatedStep(sentence) {
   );
 }
 
+// v1 Linux clone-and-build only: Prerequisites (Linux), Install and run, Build.
+// The optional macOS section may document xcode-select; that is not a v1 Linux step.
+function linuxV1Text(text) {
+  const lines = String(text).split(/\n/);
+  const collected = [];
+  let include = false;
+  let inMac = false;
+  let macLevel = 0;
+  let level = 0;
+  for (let i = 0; i < lines.length; i++) {
+    const m = lines[i].match(/^(#{1,6})\s+(.*)$/);
+    if (m) {
+      const heading = m[2].trim();
+      const thisLevel = m[1].length;
+      if (inMac && thisLevel <= macLevel) inMac = false;
+      if (/\bmac(?:os)?\b/i.test(heading) && !/\blinux\b/i.test(heading)) {
+        inMac = true;
+        macLevel = thisLevel;
+        include = false;
+        continue;
+      }
+      if (inMac) continue;
+      if (include && thisLevel <= level) include = false;
+      const isLinuxV1Heading =
+        /prerequisites\s*\(\s*linux\s*\)/i.test(heading) ||
+        /^install and run$/i.test(heading) ||
+        /^build$/i.test(heading);
+      if (isLinuxV1Heading) {
+        include = true;
+        level = thisLevel;
+      }
+    }
+    if (include && !inMac) collected.push(lines[i]);
+  }
+  return collected.join("\n");
+}
+
 test("README documents Atrium as the v1 Linux build host", () => {
   const text = loadReadme();
   assert.match(text, /atrium/i, "README must mention Atrium");
@@ -125,7 +162,22 @@ test("package.json scripts provide tauri / dev / build", () => {
 });
 
 test("README does not require Xcode or Mac as a v1 step", () => {
-  const text = loadReadme();
+  const text = linuxV1Text(loadReadme());
+  assert.match(
+    text,
+    /prerequisites\s*\(\s*linux\s*\)/i,
+    "Linux coverage: Prerequisites (Linux) must remain",
+  );
+  assert.match(
+    text,
+    /install and run/i,
+    "Linux coverage: Install and run must remain",
+  );
+  assert.match(
+    text,
+    /^#{1,6}\s+build\b/im,
+    "Linux coverage: Build must remain",
+  );
   for (const s of sentences(text)) {
     const hasXcodeOrBrew = /\bxcode\b|\bhomebrew\b|\bbrew install\b/i.test(s);
     assert.equal(
