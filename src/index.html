@@ -79,8 +79,17 @@
         margin-top: 8px;
       }
 
-      #explorer-sort {
+      #explorer-sort,
+      #editor-theme,
+      #preview-theme {
         font: inherit;
+      }
+
+      #editor-theme,
+      #preview-theme {
+        color: var(--fg);
+        background: var(--bg-elevated);
+        border: 1px solid var(--border);
       }
 
       #file-list {
@@ -148,8 +157,10 @@
         color: var(--fg);
       }
 
-      #editor-chrome {
+      #editor-chrome,
+      #preview-chrome {
         display: flex;
+        flex-wrap: wrap;
         align-items: center;
         gap: 8px;
         flex: none;
@@ -324,12 +335,36 @@
           <span id="dirty" hidden></span>
           <button type="button" id="find">Find</button>
           <input type="search" id="find-query" placeholder="Find in file" autocomplete="off" />
+          <label for="editor-theme">Editor theme</label>
+          <select id="editor-theme">
+            <option>Light</option>
+            <option>Dark</option>
+            <option>High Contrast Light</option>
+            <option>High Contrast Dark</option>
+            <option selected>Dark+</option>
+            <option>Solarized Light</option>
+            <option>Solarized Dark</option>
+            <option>Monokai</option>
+          </select>
         </div>
         <div id="frontmatter" hidden></div>
         <div id="editor-view"></div>
         <div class="splitter" role="separator" aria-orientation="vertical"></div>
       </main>
       <section id="preview" class="pane">
+        <div id="preview-chrome">
+          <label for="preview-theme">Preview theme</label>
+          <select id="preview-theme">
+            <option>Light</option>
+            <option selected>Dark</option>
+            <option>High Contrast Light</option>
+            <option>High Contrast Dark</option>
+            <option>Dark+</option>
+            <option>Solarized Light</option>
+            <option>Solarized Dark</option>
+            <option>Monokai</option>
+          </select>
+        </div>
         <div id="html-js-chrome" hidden>
           <label>
             <input type="checkbox" id="html-js" />
