@@ -1,0 +1,14 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>page</title>
+  </head>
+  <body>
+    <p id="status">js-off</p>
+    <script>
+      document.write('<p id="js-ran">script wrote this</p>');
+      document.getElementById("status").textContent = "js-ran";
+    </script>
+  </body>
+</html>
