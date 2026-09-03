@@ -51,16 +51,28 @@ fn listed_file(path: &Path) -> bool {
     )
 }
 
+pub fn read_file(root: &Path, relative: impl AsRef<Path>) -> io::Result<String> {
+    fs::read_to_string(root.join(relative))
+}
+
 #[tauri::command]
 fn list_workspace(path: String) -> Result<Vec<Entry>, String> {
     list(Path::new(&path)).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn read_workspace_file(path: String, relative: String) -> Result<String, String> {
+    read_file(Path::new(&path), &relative).map_err(|e| e.to_string())
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
-        .invoke_handler(tauri::generate_handler![list_workspace])
+        .invoke_handler(tauri::generate_handler![
+            list_workspace,
+            read_workspace_file
+        ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }
@@ -91,6 +103,7 @@ mod tests {
             ("a.md".into(), false),
             ("b.html".into(), false),
             ("c.htm".into(), false),
+            ("note.md".into(), false),
             ("nested".into(), true),
             ("nested/d.md".into(), false),
         ]

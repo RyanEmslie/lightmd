@@ -60,6 +60,29 @@
         margin: 8px 0 0;
         padding: 0;
       }
+
+      #file-list li[data-dir="false"] {
+        cursor: pointer;
+      }
+
+      #editor {
+        display: flex;
+        flex-direction: column;
+      }
+
+      #editor-buffer {
+        flex: 1;
+        min-height: 0;
+        width: 100%;
+        box-sizing: border-box;
+        resize: none;
+        border: 0;
+        padding: 0;
+        margin: 0;
+        background: transparent;
+        color: inherit;
+        font: inherit;
+      }
     </style>
   </head>
   <body>
@@ -70,7 +93,7 @@
         <div class="splitter" role="separator" aria-orientation="vertical"></div>
       </aside>
       <main id="editor" class="pane">
-        Editor
+        <textarea id="editor-buffer"></textarea>
         <div class="splitter" role="separator" aria-orientation="vertical"></div>
       </main>
       <section id="preview" class="pane">Preview</section>
@@ -79,6 +102,8 @@
       (function () {
         const button = document.getElementById("open-folder");
         const fileList = document.getElementById("file-list");
+        const buffer = document.getElementById("editor-buffer");
+        let workspacePath = null;
 
         function folderPath(selected) {
           if (!selected) return null;
@@ -93,6 +118,7 @@
           for (const entry of entries) {
             const item = document.createElement("li");
             item.textContent = entry.relative_path;
+            item.dataset.path = entry.relative_path;
             item.dataset.dir = entry.is_dir ? "true" : "false";
             fileList.appendChild(item);
           }
@@ -113,10 +139,24 @@
           const selected = await pickFolder();
           const path = folderPath(selected);
           if (!path) return;
+          workspacePath = path;
           const entries = await window.__TAURI__.core.invoke("list_workspace", {
             path,
           });
           render(entries);
+        });
+
+        fileList.addEventListener("click", async (event) => {
+          const item = event.target.closest("li");
+          if (!item || !fileList.contains(item)) return;
+          if (item.dataset.dir === "true") return;
+          if (!workspacePath) return;
+          const relative = item.dataset.path;
+          const body = await window.__TAURI__.core.invoke("read_workspace_file", {
+            path: workspacePath,
+            relative,
+          });
+          buffer.value = body;
         });
       })();
     </script>
