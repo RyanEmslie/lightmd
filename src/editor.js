@@ -3,6 +3,7 @@ import { defaultKeymap, history, historyKeymap } from "@codemirror/commands";
 import { markdown, markdownLanguage } from "@codemirror/lang-markdown";
 import { parseFrontmatter } from "./frontmatter.js";
 import { cancelAutosave, scheduleAutoSave } from "./autosave.js";
+import { findExtension, runFind } from "./find.js";
 
 const buffer = document.getElementById("editor-buffer");
 const parent = document.getElementById("editor-view");
@@ -35,6 +36,12 @@ const theme = EditorView.theme({
     fontSize: "14px",
     lineHeight: "1.45",
   },
+  ".cm-searchMatch": {
+    backgroundColor: "#ffff0054",
+  },
+  ".cm-searchMatch-selected": {
+    backgroundColor: "#ff6a0054",
+  },
 });
 
 const extensions = [
@@ -60,6 +67,8 @@ const extensions = [
 if (editorDefaults.lineWrapping) {
   extensions.push(EditorView.lineWrapping);
 }
+
+extensions.push(findExtension);
 
 const view = new EditorView({
   doc: buffer ? buffer.value : "",
@@ -114,6 +123,25 @@ function setDoc(text) {
 }
 
 applyFrontmatter(view.state.doc.toString());
+
+const findButton = document.getElementById("find");
+const findQuery = document.getElementById("find-query");
+
+function applyFind() {
+  const needle = findQuery ? findQuery.value : "";
+  if (!needle && findQuery) findQuery.focus();
+  runFind(view, needle);
+}
+
+if (findButton) findButton.addEventListener("click", applyFind);
+if (findQuery) {
+  findQuery.addEventListener("keydown", (event) => {
+    if (event.key === "Enter") {
+      event.preventDefault();
+      applyFind();
+    }
+  });
+}
 
 window.lightmdEditor = { view, setDoc, lineNumbers: editorDefaults.lineNumbers };
 window.lightmdScheduleAutoSave = scheduleAutoSave;

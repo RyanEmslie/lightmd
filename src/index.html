@@ -150,6 +150,13 @@
         display: none;
       }
 
+      #find-query {
+        font: inherit;
+        min-width: 10em;
+        flex: 1 1 8em;
+        max-width: 20em;
+      }
+
       #frontmatter {
         flex: none;
         display: flex;
@@ -232,6 +239,8 @@
         <div id="editor-chrome">
           <button type="button" id="save">Save</button>
           <span id="dirty" hidden></span>
+          <button type="button" id="find">Find</button>
+          <input type="search" id="find-query" placeholder="Find in file" autocomplete="off" />
         </div>
         <div id="frontmatter" hidden></div>
         <div id="editor-view"></div>
