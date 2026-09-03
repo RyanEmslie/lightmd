@@ -95,17 +95,31 @@
         align-self: start;
       }
 
-      #explorer-toolbar {
+      #explorer-toolbar,
+      #layout-bar {
         display: flex;
         flex-wrap: wrap;
         align-items: center;
         gap: 8px;
+      }
+
+      #explorer-toolbar {
         margin-top: 8px;
+      }
+
+      #layout-bar {
+        flex: none;
+        padding: 8px 12px;
+        box-sizing: border-box;
+        background: var(--bg);
+        border-bottom: 1px solid var(--border);
       }
 
       #explorer-sort,
       #editor-theme,
-      #preview-theme {
+      #preview-theme,
+      #pane-layout,
+      #pane-order {
         font: inherit;
       }
 
@@ -362,6 +376,26 @@
     </style>
   </head>
   <body>
+    <div id="layout-bar">
+      <label for="pane-layout">Layout</label>
+      <select id="pane-layout">
+        <option value="three-pane" selected>Three panes</option>
+        <option value="editor-only">Editor only</option>
+        <option value="reader-only">Reader only</option>
+      </select>
+      <button type="button" data-pane-toggle="explorer" aria-pressed="true">Hide</button>
+      <button type="button" data-pane-toggle="editor" aria-pressed="true">Hide</button>
+      <button type="button" data-pane-toggle="preview" aria-pressed="true">Hide</button>
+      <label for="pane-order">Order</label>
+      <select id="pane-order">
+        <option value="explorer,editor,preview" selected>Explorer, editor, preview</option>
+        <option value="explorer,preview,editor">Explorer, preview, editor</option>
+        <option value="editor,explorer,preview">Editor, explorer, preview</option>
+        <option value="editor,preview,explorer">Editor, preview, explorer</option>
+        <option value="preview,explorer,editor">Preview, explorer, editor</option>
+        <option value="preview,editor,explorer">Preview, editor, explorer</option>
+      </select>
+    </div>
     <div id="shell">
       <aside id="explorer" class="pane">
         <button type="button" id="open-folder">Open Folder</button>
@@ -387,12 +421,6 @@
           <button type="button" id="save">Save</button>
           <button type="button" id="find">Find</button>
           <input type="search" id="find-query" placeholder="Find in file" autocomplete="off" />
-          <label for="pane-layout">Layout</label>
-          <select id="pane-layout">
-            <option value="three-pane" selected>Three panes</option>
-            <option value="editor-only">Editor only</option>
-            <option value="reader-only">Reader only</option>
-          </select>
           <label for="editor-theme">Editor theme</label>
           <select id="editor-theme">
             <option>Light</option>

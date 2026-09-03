@@ -116,6 +116,10 @@ function syncLayoutControls() {
     else if (!explorer && !editor && preview) select.value = "reader-only";
     else select.value = "three-pane";
   }
+  const orderSelect = d.getElementById("pane-order");
+  if (orderSelect) {
+    orderSelect.value = layout.order.join(",");
+  }
   const toggles =
     typeof d.querySelectorAll === "function"
       ? d.querySelectorAll("[data-pane-toggle]")
@@ -128,6 +132,25 @@ function syncLayoutControls() {
       btn.setAttribute("aria-pressed", open ? "true" : "false");
     }
   }
+}
+
+function applyWindowSize() {
+  const width = layout.window.width;
+  const height = layout.window.height;
+  if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) return;
+  try {
+    const tw = globalThis.__TAURI__?.window || globalThis.__TAURI__?.webviewWindow;
+    const LogicalSize = tw?.LogicalSize || globalThis.__TAURI__?.dpi?.LogicalSize;
+    const getCurrent = tw?.getCurrentWindow || tw?.getCurrentWebviewWindow;
+    if (typeof getCurrent === "function" && LogicalSize) {
+      const size = new LogicalSize(width, height);
+      const win = getCurrent();
+      if (win && typeof win.setSize === "function") {
+        const ret = win.setSize(size);
+        if (ret && typeof ret.catch === "function") ret.catch(() => {});
+      }
+    }
+  } catch {}
 }
 
 export function persistLayout() {
@@ -210,6 +233,7 @@ export function restoreLayout() {
   const height = Number(win.height ?? win.innerHeight);
   if (Number.isFinite(width) && width > 0) layout.window.width = width;
   if (Number.isFinite(height) && height > 0) layout.window.height = height;
+  applyWindowSize();
   applyLayoutToDom();
 }
 
@@ -264,15 +288,6 @@ export function reorderPanes(order) {
 }
 
 export function getLayout() {
-  const d = doc();
-  if (d && d.__lightmdPaneLayoutMock) {
-    return {
-      order: layout.order,
-      open: { explorer: true, editor: true, preview: true },
-      widths: layout.widths,
-      window: layout.window,
-    };
-  }
   return layout;
 }
 
@@ -283,6 +298,12 @@ function bindLayoutControls() {
   if (select && typeof select.addEventListener === "function") {
     select.addEventListener("change", () => {
       setLayout(select.value);
+    });
+  }
+  const orderSelect = d.getElementById("pane-order");
+  if (orderSelect && typeof orderSelect.addEventListener === "function") {
+    orderSelect.addEventListener("change", () => {
+      reorderPanes(orderSelect.value.split(",").map((s) => s.trim()));
     });
   }
   const toggles =

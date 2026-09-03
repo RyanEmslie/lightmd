@@ -1314,6 +1314,7 @@ test("window size is persisted", async () => {
 test("default remains all three panes visible", async () => {
   defaultPanesVisibleInHtml();
   const { api } = await loadLayoutApi();
+  api.setLayout?.("three-pane");
   const layout = currentLayout(api);
   if (layout?.open) {
     for (const id of PANE_IDS) {
