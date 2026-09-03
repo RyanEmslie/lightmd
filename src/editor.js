@@ -12,6 +12,7 @@ import { applyTheme, setEditorTheme, setPreviewTheme } from "./palettes.js";
 import { restoreLayout } from "./layout.js";
 import { persistSession, restoreSession } from "./session.js";
 import { editorDefaults, mountSettings } from "./settings.js";
+import { bindKeyboard } from "./keyboard.js";
 
 export { editorDefaults };
 
@@ -307,3 +308,8 @@ window.lightmdCancelAutosave = cancelAutosave;
 restoreLayout();
 restoreSession();
 mountSettings();
+try {
+  bindKeyboard();
+} catch {
+  // DOM-optional
+}
