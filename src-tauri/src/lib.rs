@@ -127,6 +127,16 @@ mod tests {
     }
 
     #[test]
+    fn read_file_rejects_parent_relative_path() {
+        let result = read_file(&workspace_fixture(), "../outside.md");
+        assert!(
+            result.is_err(),
+            "read_file(workspace_root, \"../outside.md\") must be Err, got Ok({:?})",
+            result.ok()
+        );
+    }
+
+    #[test]
     fn does_not_expose_create_rename_or_delete() {
         let src = include_str!("lib.rs");
         for op in ["create", "rename", "delete"] {
