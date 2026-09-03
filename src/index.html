@@ -593,12 +593,50 @@
           render(entries);
         }
 
+        function persistOpenFolder(path) {
+          if (typeof window.lightmdPersistSession === "function") {
+            window.lightmdPersistSession({ lastFolder: path, folder: path });
+          }
+        }
+
+        function persistOpenFile(relative) {
+          if (typeof window.lightmdPersistSession === "function") {
+            window.lightmdPersistSession({ lastFile: relative, file: relative });
+          }
+        }
+
+        async function applyFolder(path) {
+          workspacePath = path;
+          await loadWorkspace(path);
+        }
+
+        async function applyFile(relative) {
+          if (!workspacePath) return;
+          if (typeof window.lightmdCancelAutosave === "function") {
+            window.lightmdCancelAutosave();
+          }
+          const body = await window.__TAURI__.core.invoke("read_workspace_file", {
+            path: workspacePath,
+            relative,
+          });
+          currentRelative = relative;
+          if (statusPath) statusPath.textContent = currentRelative;
+          buffer.value = body;
+          if (window.lightmdEditor) {
+            window.lightmdEditor.setDoc(body);
+          }
+          setDirty(false);
+        }
+
+        window.lightmdOpenFolder = applyFolder;
+        window.lightmdOpenFile = applyFile;
+
         button.addEventListener("click", async () => {
           const selected = await pickFolder();
           const path = folderPath(selected);
           if (!path) return;
-          workspacePath = path;
-          await loadWorkspace(path);
+          await applyFolder(path);
+          persistOpenFolder(path);
         });
 
         sortSelect.addEventListener("change", async () => {
@@ -615,21 +653,9 @@
           if (!item || !fileList.contains(item)) return;
           if (item.dataset.dir === "true") return;
           if (!workspacePath) return;
-          if (typeof window.lightmdCancelAutosave === "function") {
-            window.lightmdCancelAutosave();
-          }
           const relative = item.dataset.path;
-          const body = await window.__TAURI__.core.invoke("read_workspace_file", {
-            path: workspacePath,
-            relative,
-          });
-          currentRelative = relative;
-          if (statusPath) statusPath.textContent = currentRelative;
-          buffer.value = body;
-          if (window.lightmdEditor) {
-            window.lightmdEditor.setDoc(body);
-          }
-          setDirty(false);
+          await applyFile(relative);
+          persistOpenFile(relative);
         });
 
         saveButton.addEventListener("click", async () => {
