@@ -140,6 +140,7 @@ fn read_workspace_image(path: String, relative: String) -> Result<Vec<u8>, Strin
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_opener::init())
         .invoke_handler(tauri::generate_handler![
             list_workspace,
             read_workspace_file,

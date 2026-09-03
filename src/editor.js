@@ -4,7 +4,7 @@ import { markdown, markdownLanguage } from "@codemirror/lang-markdown";
 import { parseFrontmatter } from "./frontmatter.js";
 import { cancelAutosave, scheduleAutoSave } from "./autosave.js";
 import { findExtension, runFind } from "./find.js";
-import { preview as previewConfig, renderPreview, rewritePreviewImages } from "./preview.js";
+import { preview as previewConfig, renderPreview, rewritePreviewImages, bindPreviewLinks } from "./preview.js";
 
 const buffer = document.getElementById("editor-buffer");
 const parent = document.getElementById("editor-view");
@@ -128,6 +128,7 @@ function setDoc(text) {
 }
 
 applyFrontmatter(view.state.doc.toString());
+if (previewBody) bindPreviewLinks(previewBody);
 
 const findButton = document.getElementById("find");
 const findQuery = document.getElementById("find-query");
