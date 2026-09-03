@@ -6,7 +6,7 @@ import { cancelAutosave, scheduleAutoSave } from "./autosave.js";
 import { findExtension, runFind } from "./find.js";
 import { preview as previewConfig, renderPreview, rewritePreviewImages, bindPreviewLinks } from "./preview.js";
 import { isHtmlFile, showHtmlViewer, hideHtmlViewer } from "./html-viewer.js";
-import { applyTheme } from "./palettes.js";
+import { applyTheme, setEditorTheme, setPreviewTheme } from "./palettes.js";
 
 const buffer = document.getElementById("editor-buffer");
 const parent = document.getElementById("editor-view");
@@ -183,6 +183,19 @@ if (findQuery) {
       event.preventDefault();
       applyFind();
     }
+  });
+}
+
+const editorThemeSelect = document.getElementById("editor-theme");
+if (editorThemeSelect) {
+  editorThemeSelect.addEventListener("change", (event) => {
+    setEditorTheme(event.target.value);
+  });
+}
+const previewThemeSelect = document.getElementById("preview-theme");
+if (previewThemeSelect) {
+  previewThemeSelect.addEventListener("change", (event) => {
+    setPreviewTheme(event.target.value);
   });
 }
 
