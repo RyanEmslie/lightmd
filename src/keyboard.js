@@ -32,7 +32,12 @@ function cycleEditorTheme(delta) {
   const current = (select && select.value) || theme.editorTheme;
   const next = cyclePalette(current, delta);
   setEditorTheme(next);
-  if (select) select.value = next;
+  if (select) {
+    select.value = next;
+    if (typeof Event === "function" && typeof select.dispatchEvent === "function") {
+      select.dispatchEvent(new Event("change"));
+    }
+  }
 }
 
 function cyclePreviewTheme(delta) {
@@ -41,7 +46,12 @@ function cyclePreviewTheme(delta) {
   const current = (select && select.value) || theme.previewTheme;
   const next = cyclePalette(current, delta);
   setPreviewTheme(next);
-  if (select) select.value = next;
+  if (select) {
+    select.value = next;
+    if (typeof Event === "function" && typeof select.dispatchEvent === "function") {
+      select.dispatchEvent(new Event("change"));
+    }
+  }
 }
 
 function onKeydown(event) {
