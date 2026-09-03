@@ -68,6 +68,7 @@ pub fn run() {
 #[cfg(test)]
 mod tests {
     use super::list;
+    use super::read_file;
     use std::collections::HashSet;
     use std::path::PathBuf;
 
@@ -98,6 +99,17 @@ mod tests {
         assert_eq!(
             got, expected,
             "list must return md/html/htm files plus nested dirs and ignore txt"
+        );
+    }
+
+    #[test]
+    fn read_file_returns_note_md_body() {
+        let body =
+            read_file(&workspace_fixture(), "note.md").expect("read_file should read note.md");
+        assert_eq!(
+            body.replace('\r', ""),
+            "# Note\n\nKnown body for open-file.\n",
+            "read_file(root, relative) must return the known body of note.md"
         );
     }
 
