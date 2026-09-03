@@ -10,6 +10,7 @@ node_modules
 dist
 dist-ssr
 *.local
+src/editor.bundle.js
 
 # Editor directories and files
 .vscode/*
