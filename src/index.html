@@ -223,6 +223,27 @@
         display: none;
       }
 
+      #html-js-chrome {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 8px;
+        flex: none;
+        margin: 0 0 8px;
+      }
+
+      #html-js-chrome[hidden] {
+        display: none;
+      }
+
+      #html-js-warn {
+        margin: 0;
+      }
+
+      #html-js-warn[hidden] {
+        display: none;
+      }
+
       #editor-buffer {
         position: absolute;
         width: 1px;
@@ -285,6 +306,15 @@
         <div class="splitter" role="separator" aria-orientation="vertical"></div>
       </main>
       <section id="preview" class="pane">
+        <div id="html-js-chrome" hidden>
+          <label>
+            <input type="checkbox" id="html-js" />
+            Enable JavaScript
+          </label>
+          <p id="html-js-warn" role="alert" hidden>
+            Warning: JavaScript is on
+          </p>
+        </div>
         <div id="preview-body">Preview</div>
         <iframe id="html-viewer" sandbox hidden></iframe>
       </section>
