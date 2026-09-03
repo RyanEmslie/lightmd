@@ -52,3 +52,7 @@ npm run tauri build
 ```
 
 `tauri build` produces a Linux bundle under `src-tauri/target/release/bundle/` without a Mac.
+
+## Privacy / local-only
+
+v1 has no telemetry. File access is the opened workspace folder plus app config (theme, session, and layout). Theme, session, and layout stay on this machine (OS/localStorage). https links open via the system browser (`tauri-plugin-opener` / `openUrl`) only when the user clicks. There is no update check in v1.
