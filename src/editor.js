@@ -4,12 +4,13 @@ import { markdown, markdownLanguage } from "@codemirror/lang-markdown";
 import { parseFrontmatter } from "./frontmatter.js";
 import { cancelAutosave, scheduleAutoSave } from "./autosave.js";
 import { findExtension, runFind } from "./find.js";
+import { preview as previewConfig, renderPreview } from "./preview.js";
 
 const buffer = document.getElementById("editor-buffer");
 const parent = document.getElementById("editor-view");
 const frontmatterEl = document.getElementById("frontmatter");
 const previewBody = document.getElementById("preview-body");
-const preview = document.getElementById("preview");
+const previewPane = document.getElementById("preview");
 let applyingLoad = false;
 
 // Default on; Settings can toggle later.
@@ -53,7 +54,7 @@ const extensions = [
     if (update.docChanged) {
       const text = update.state.doc.toString();
       if (buffer) buffer.value = text;
-      applyFrontmatter(text);
+      applyFrontmatter(text, previewConfig.live);
       if (!applyingLoad) {
         if (typeof window.lightmdSetDirty === "function") {
           window.lightmdSetDirty(true);
@@ -76,12 +77,14 @@ const view = new EditorView({
   extensions,
 });
 
-function setPreview(body) {
-  const target = previewBody || preview;
-  if (target) target.textContent = body;
+function setPreview(markdownBody) {
+  const target = previewBody || previewPane;
+  if (!target) return;
+  target.replaceChildren();
+  target.insertAdjacentHTML("afterbegin", renderPreview(markdownBody));
 }
 
-function applyFrontmatter(text) {
+function applyFrontmatter(text, updatePreview = true) {
   const parsed = parseFrontmatter(text);
   const show = showFrontmatterBlock && parsed.hasFrontmatter;
   if (frontmatterEl) {
@@ -103,7 +106,7 @@ function applyFrontmatter(text) {
       frontmatterEl.hidden = true;
     }
   }
-  setPreview(parsed.body);
+  if (updatePreview) setPreview(parsed.body);
 }
 
 function setDoc(text) {
@@ -131,6 +134,13 @@ function applyFind() {
   const needle = findQuery ? findQuery.value : "";
   if (!needle && findQuery) findQuery.focus();
   runFind(view, needle);
+}
+
+const saveButton = document.getElementById("save");
+if (saveButton) {
+  saveButton.addEventListener("click", () => {
+    applyFrontmatter(view.state.doc.toString(), true);
+  });
 }
 
 if (findButton) findButton.addEventListener("click", applyFind);

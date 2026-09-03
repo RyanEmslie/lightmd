@@ -182,7 +182,25 @@
         flex: 1;
         min-height: 0;
         overflow: auto;
-        white-space: pre-wrap;
+      }
+
+      #preview-body table {
+        border-collapse: collapse;
+      }
+
+      #preview-body th,
+      #preview-body td {
+        border: 1px solid var(--border);
+        padding: 4px 8px;
+      }
+
+      #preview-body img {
+        max-width: 100%;
+      }
+
+      #preview-body pre {
+        overflow: auto;
+        font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
       }
 
       #editor-buffer {
