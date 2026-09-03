@@ -1,4 +1,6 @@
-import { EditorView, keymap } from "@codemirror/view";
+import { EditorView, keymap, lineNumbers, highlightActiveLine } from "@codemirror/view";
+import { EditorState, Compartment } from "@codemirror/state";
+import { indentUnit } from "@codemirror/language";
 import { defaultKeymap, history, historyKeymap } from "@codemirror/commands";
 import { markdown, markdownLanguage } from "@codemirror/lang-markdown";
 import { parseFrontmatter } from "./frontmatter.js";
@@ -9,6 +11,9 @@ import { isHtmlFile, showHtmlViewer, hideHtmlViewer } from "./html-viewer.js";
 import { applyTheme, setEditorTheme, setPreviewTheme } from "./palettes.js";
 import { restoreLayout } from "./layout.js";
 import { persistSession, restoreSession } from "./session.js";
+import { editorDefaults, mountSettings } from "./settings.js";
+
+export { editorDefaults };
 
 const buffer = document.getElementById("editor-buffer");
 const parent = document.getElementById("editor-view");
@@ -25,13 +30,39 @@ function updateWordCount(text) {
   wordCountEl.textContent = `${n} words`;
 }
 
-// Default on; Settings can toggle later.
-const showFrontmatterBlock = true;
+const wrapCompartment = new Compartment();
+const lineNumberCompartment = new Compartment();
+const activeLineCompartment = new Compartment();
+const tabCompartment = new Compartment();
+const fontCompartment = new Compartment();
 
-const editorDefaults = {
-  lineWrapping: true,
-  lineNumbers: false,
-};
+function editorFontTheme() {
+  const size = `${editorDefaults.fontSize}px`;
+  const lh = String(editorDefaults.lineHeight);
+  return EditorView.theme({
+    "&": { fontSize: size },
+    ".cm-scroller": { fontSize: size, lineHeight: lh },
+    ".cm-content": { fontSize: size, lineHeight: lh },
+  });
+}
+
+function wrapExt() {
+  return editorDefaults.lineWrapping ? EditorView.lineWrapping : [];
+}
+
+function lineNumberExt() {
+  return editorDefaults.lineNumbers ? lineNumbers() : [];
+}
+
+function activeLineExt() {
+  return editorDefaults.highlightActiveLine ? highlightActiveLine() : [];
+}
+
+function tabExt() {
+  const size = Number(editorDefaults.tabSize) || 4;
+  const unit = editorDefaults.softTabs ? " ".repeat(Math.max(1, size)) : "\t";
+  return [EditorState.tabSize.of(size), indentUnit.of(unit)];
+}
 
 const theme = EditorView.theme({
   "&": {
@@ -72,6 +103,11 @@ const extensions = [
   keymap.of([...defaultKeymap, ...historyKeymap]),
   markdown({ base: markdownLanguage }),
   theme,
+  fontCompartment.of(editorFontTheme()),
+  wrapCompartment.of(wrapExt()),
+  lineNumberCompartment.of(lineNumberExt()),
+  activeLineCompartment.of(activeLineExt()),
+  tabCompartment.of(tabExt()),
   EditorView.updateListener.of((update) => {
     if (update.docChanged) {
       const text = update.state.doc.toString();
@@ -87,10 +123,6 @@ const extensions = [
     }
   }),
 ];
-
-if (editorDefaults.lineWrapping) {
-  extensions.push(EditorView.lineWrapping);
-}
 
 extensions.push(findExtension);
 
@@ -129,7 +161,7 @@ function applyFrontmatter(text, updatePreview = true) {
     return;
   }
   const parsed = parseFrontmatter(text);
-  const show = showFrontmatterBlock && parsed.hasFrontmatter;
+  const show = editorDefaults.frontmatter && parsed.hasFrontmatter;
   if (frontmatterEl) {
     frontmatterEl.replaceChildren();
     if (show) {
@@ -214,8 +246,64 @@ if (previewThemeSelect) {
   });
 }
 
-window.lightmdEditor = { view, setDoc, lineNumbers: editorDefaults.lineNumbers };
+function setLineWrapping(on) {
+  editorDefaults.lineWrapping = !!on;
+  view.dispatch({ effects: wrapCompartment.reconfigure(wrapExt()) });
+}
+
+function setLineNumbers(on) {
+  editorDefaults.lineNumbers = !!on;
+  view.dispatch({ effects: lineNumberCompartment.reconfigure(lineNumberExt()) });
+}
+
+function setHighlightActiveLine(on) {
+  editorDefaults.highlightActiveLine = !!on;
+  view.dispatch({ effects: activeLineCompartment.reconfigure(activeLineExt()) });
+}
+
+function setTabSize(size) {
+  const n = Number(size);
+  if (!Number.isFinite(n) || n <= 0) return;
+  editorDefaults.tabSize = n;
+  view.dispatch({ effects: tabCompartment.reconfigure(tabExt()) });
+}
+
+function setSoftTabs(on) {
+  editorDefaults.softTabs = !!on;
+  view.dispatch({ effects: tabCompartment.reconfigure(tabExt()) });
+}
+
+function setEditorFont(size, lineHeight) {
+  const nextSize = Number(size);
+  const nextLh = Number(lineHeight);
+  if (Number.isFinite(nextSize) && nextSize > 0) editorDefaults.fontSize = nextSize;
+  if (Number.isFinite(nextLh) && nextLh > 0) editorDefaults.lineHeight = nextLh;
+  view.dispatch({ effects: fontCompartment.reconfigure(editorFontTheme()) });
+  if (parent && parent.style) {
+    parent.style.fontSize = `${editorDefaults.fontSize}px`;
+    parent.style.lineHeight = String(editorDefaults.lineHeight);
+  }
+}
+
+function setShowFrontmatter(on) {
+  editorDefaults.frontmatter = !!on;
+  applyFrontmatter(view.state.doc.toString(), previewConfig.live);
+}
+
+window.lightmdEditor = {
+  view,
+  setDoc,
+  lineNumbers: editorDefaults.lineNumbers,
+  setLineWrapping,
+  setLineNumbers,
+  setHighlightActiveLine,
+  setTabSize,
+  setSoftTabs,
+  setEditorFont,
+  setShowFrontmatter,
+};
 window.lightmdScheduleAutoSave = scheduleAutoSave;
 window.lightmdCancelAutosave = cancelAutosave;
 restoreLayout();
 restoreSession();
+mountSettings();

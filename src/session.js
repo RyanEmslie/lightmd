@@ -258,7 +258,7 @@ export function restoreSession(extra) {
   syncSessionControls();
   return Promise.resolve()
     .then(() => applyThemeHelpers())
-    .then(() => restoreWorkspace())
+    .then(() => (session.restore ? restoreWorkspace() : session))
     .then(() => session)
     .catch(() => session);
 }

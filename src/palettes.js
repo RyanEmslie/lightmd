@@ -101,6 +101,15 @@ export const theme = {
   chromeFollowsEditor: true,
 };
 
+export function setChromeFollowsEditor(follows, shell) {
+  theme.chromeFollowsEditor = !!follows;
+  if (!theme.chromeFollowsEditor) {
+    const name = shell === "Light" || shell === "light" ? "Light" : "Dark";
+    theme.chromeTheme = name;
+  }
+  applyTheme();
+}
+
 function hexLuminance(color) {
   const hex = String(color || "").replace("#", "");
   if (hex.length !== 6) return 0;
@@ -124,10 +133,13 @@ export function applyTheme() {
   if (!d) return;
   const editorPal = palettes[theme.editorTheme];
   const previewPal = palettes[theme.previewTheme];
-  if (theme.chromeFollowsEditor && editorPal) {
-    applyPalette(d.documentElement, editorPal);
-    applyPalette(d.body, editorPal);
-    applyPalette(d.getElementById("explorer"), editorPal);
+  const chromePal = theme.chromeFollowsEditor
+    ? editorPal
+    : palettes[theme.chromeTheme] || palettes.Dark;
+  if (chromePal) {
+    applyPalette(d.documentElement, chromePal);
+    applyPalette(d.body, chromePal);
+    applyPalette(d.getElementById("explorer"), chromePal);
   }
   applyPalette(d.getElementById("editor"), editorPal);
   applyPalette(d.getElementById("preview"), previewPal);

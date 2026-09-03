@@ -6,6 +6,7 @@ export const layout = {
   open: { explorer: true, editor: true, preview: true },
   widths: { explorer: 240, editor: 400, preview: 400 },
   window: { width: 800, height: 600 },
+  remember: true,
 };
 
 function doc() {
@@ -156,6 +157,7 @@ function applyWindowSize() {
 export function persistLayout() {
   const ls = storage();
   if (!ls || typeof ls.setItem !== "function") return;
+  if (layout.remember === false) return;
   captureWidths();
   const size = windowSize();
   layout.window.width = size.width;
@@ -176,6 +178,7 @@ export function persistLayout() {
       innerWidth: size.width,
       innerHeight: size.height,
     },
+    remember: layout.remember !== false,
   };
   try {
     ls.setItem(STORAGE_KEY, JSON.stringify(payload));
@@ -233,6 +236,7 @@ export function restoreLayout() {
   const height = Number(win.height ?? win.innerHeight);
   if (Number.isFinite(width) && width > 0) layout.window.width = width;
   if (Number.isFinite(height) && height > 0) layout.window.height = height;
+  if (typeof parsed.remember === "boolean") layout.remember = parsed.remember;
   applyWindowSize();
   applyLayoutToDom();
 }

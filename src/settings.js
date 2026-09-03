@@ -1,0 +1,376 @@
+import {
+  palettes,
+  theme,
+  setEditorTheme,
+  setPreviewTheme,
+  applyTheme,
+  setChromeFollowsEditor,
+} from "./palettes.js";
+import { autosave, cancelAutosave } from "./autosave.js";
+import { session, persistSession } from "./session.js";
+import { htmlJs, setHtmlJsEnabled } from "./html-viewer.js";
+import { preview } from "./preview.js";
+import { findOptions } from "./find.js";
+import { layout, persistLayout } from "./layout.js";
+
+export {
+  palettes,
+  theme,
+  setEditorTheme,
+  setPreviewTheme,
+  applyTheme,
+  setChromeFollowsEditor,
+};
+
+export const editorDefaults = {
+  lineWrapping: true,
+  lineNumbers: false,
+  highlightActiveLine: false,
+  tabSize: 4,
+  softTabs: true,
+  fontSize: 14,
+  lineHeight: 1.45,
+  frontmatter: true,
+};
+
+export const previewDefaults = {
+  fontSize: 16,
+  lineHeight: 1.55,
+};
+
+export const defaults = {
+  editorTheme: "Dark+",
+  previewTheme: "Dark",
+  wrap: true,
+  lineWrapping: true,
+  lineNumbers: false,
+  livePreview: true,
+  frontmatter: true,
+  autosave: true,
+  sessionRestore: true,
+  htmlJs: false,
+  chromeFollowsEditor: true,
+};
+
+function doc() {
+  return typeof globalThis.document !== "undefined" ? globalThis.document : null;
+}
+
+function editorApi() {
+  try {
+    return globalThis.lightmdEditor;
+  } catch {
+    return undefined;
+  }
+}
+
+export function openSettings() {
+  const panel = doc()?.getElementById("settings");
+  if (panel) panel.hidden = false;
+}
+
+export function closeSettings() {
+  const panel = doc()?.getElementById("settings");
+  if (panel) panel.hidden = true;
+}
+
+export function toggleSettings() {
+  const panel = doc()?.getElementById("settings");
+  if (!panel) return;
+  panel.hidden = !panel.hidden;
+}
+
+function setChromeMode(value) {
+  if (value === "light") {
+    theme.chromeFollowsEditor = false;
+    theme.chromeTheme = "Light";
+  } else if (value === "dark") {
+    theme.chromeFollowsEditor = false;
+    theme.chromeTheme = "Dark";
+  } else {
+    theme.chromeFollowsEditor = true;
+  }
+  applyTheme();
+}
+
+function chromeModeValue() {
+  if (theme.chromeFollowsEditor) return "follow";
+  const shell = String(theme.chromeTheme || "").toLowerCase();
+  if (shell === "light") return "light";
+  if (shell === "dark") return "dark";
+  return "follow";
+}
+
+function applyPreviewFont() {
+  const d = doc();
+  const el = d && d.getElementById("preview-body");
+  if (!el || !el.style) return;
+  el.style.fontSize = `${previewDefaults.fontSize}px`;
+  el.style.lineHeight = String(previewDefaults.lineHeight);
+}
+
+function paletteNames() {
+  return Object.keys(palettes);
+}
+
+function fillThemeSelect(select, selected) {
+  if (!select) return;
+  const names = paletteNames();
+  if (!select.options || select.options.length === 0) {
+    for (const name of names) {
+      const opt = doc().createElement("option");
+      opt.value = name;
+      opt.textContent = name;
+      if (name === selected) opt.selected = true;
+      select.append(opt);
+    }
+  }
+  if (typeof selected === "string") select.value = selected;
+}
+
+function syncThemeSelects() {
+  const d = doc();
+  if (!d) return;
+  const editorChrome = d.getElementById("editor-theme");
+  const previewChrome = d.getElementById("preview-theme");
+  const editorSettings = d.getElementById("settings-editor-theme");
+  const previewSettings = d.getElementById("settings-preview-theme");
+  fillThemeSelect(editorSettings, theme.editorTheme);
+  fillThemeSelect(previewSettings, theme.previewTheme);
+  if (editorChrome && editorSettings) editorSettings.value = editorChrome.value || theme.editorTheme;
+  if (previewChrome && previewSettings) previewSettings.value = previewChrome.value || theme.previewTheme;
+}
+
+function syncWorkspaceControls() {
+  const d = doc();
+  if (!d) return;
+  const sortMain = d.getElementById("explorer-sort");
+  const sortSettings = d.getElementById("settings-explorer-sort");
+  if (sortMain && sortSettings) sortSettings.value = sortMain.value;
+  const extMain = d.getElementById("show-extensions");
+  const extSettings = d.getElementById("settings-show-extensions");
+  if (extMain && extSettings) extSettings.checked = extMain.checked;
+}
+
+function syncHtmlJsControl() {
+  const d = doc();
+  const el = d && d.getElementById("settings-html-js");
+  if (el) el.checked = !!htmlJs.enabled;
+}
+
+function syncFromState() {
+  const d = doc();
+  if (!d || typeof d.getElementById !== "function") return;
+  const chrome = d.getElementById("chrome-mode");
+  if (chrome) chrome.value = chromeModeValue();
+  const editorSize = d.getElementById("editor-font-size");
+  if (editorSize) editorSize.value = String(editorDefaults.fontSize);
+  const editorLh = d.getElementById("editor-line-height");
+  if (editorLh) editorLh.value = String(editorDefaults.lineHeight);
+  const previewSize = d.getElementById("preview-font-size");
+  if (previewSize) previewSize.value = String(previewDefaults.fontSize);
+  const previewLh = d.getElementById("preview-line-height");
+  if (previewLh) previewLh.value = String(previewDefaults.lineHeight);
+  const activeLine = d.getElementById("highlight-active-line");
+  if (activeLine) activeLine.checked = !!editorDefaults.highlightActiveLine;
+  const lineNumbers = d.getElementById("show-line-numbers");
+  if (lineNumbers) lineNumbers.checked = !!editorDefaults.lineNumbers;
+  const wrap = d.getElementById("settings-word-wrap");
+  if (wrap) wrap.checked = !!editorDefaults.lineWrapping;
+  const tabSize = d.getElementById("settings-tab-size");
+  if (tabSize) tabSize.value = String(editorDefaults.tabSize);
+  const softTabs = d.getElementById("settings-soft-tabs");
+  if (softTabs) softTabs.checked = !!editorDefaults.softTabs;
+  const autosaveMode = d.getElementById("settings-autosave");
+  if (autosaveMode) autosaveMode.value = autosave.enabled ? "delayed" : "off";
+  const autosaveDelay = d.getElementById("settings-autosave-delay");
+  if (autosaveDelay) autosaveDelay.value = String(autosave.delay);
+  const restore = d.getElementById("settings-session-restore");
+  if (restore) restore.checked = !!session.restore;
+  const findCase = d.getElementById("settings-find-case");
+  if (findCase) findCase.checked = !!findOptions.caseSensitive;
+  const findWhole = d.getElementById("settings-find-whole-word");
+  if (findWhole) findWhole.checked = !!findOptions.wholeWord;
+  const live = d.getElementById("settings-live-preview");
+  if (live) live.checked = !!preview.live;
+  const frontmatter = d.getElementById("settings-frontmatter");
+  if (frontmatter) frontmatter.checked = !!editorDefaults.frontmatter;
+  const gfm = d.getElementById("settings-gfm");
+  if (gfm) gfm.checked = true;
+  const folder = d.getElementById("settings-default-folder");
+  if (folder) folder.value = session.defaultFolder == null ? "" : String(session.defaultFolder);
+  const remember = d.getElementById("settings-remember-layout");
+  if (remember) remember.checked = layout.remember !== false;
+  syncThemeSelects();
+  syncWorkspaceControls();
+  syncHtmlJsControl();
+}
+
+function on(el, type, fn) {
+  if (el && typeof el.addEventListener === "function") el.addEventListener(type, fn);
+}
+
+let bound = false;
+
+export function bindSettings() {
+  const d = doc();
+  if (!d || typeof d.getElementById !== "function") return;
+  if (bound) {
+    syncFromState();
+    return;
+  }
+  bound = true;
+
+  on(d.getElementById("settings-open"), "click", () => {
+    toggleSettings();
+  });
+  on(d.getElementById("settings-close"), "click", () => {
+    closeSettings();
+  });
+
+  on(d.getElementById("chrome-mode"), "change", (event) => {
+    setChromeMode(event.target.value);
+  });
+
+  const editorTheme = d.getElementById("settings-editor-theme");
+  on(editorTheme, "change", (event) => {
+    const value = event.target.value;
+    setEditorTheme(value);
+    persistSession({ editorTheme: value });
+    const chrome = d.getElementById("editor-theme");
+    if (chrome) chrome.value = value;
+  });
+  const previewTheme = d.getElementById("settings-preview-theme");
+  on(previewTheme, "change", (event) => {
+    const value = event.target.value;
+    setPreviewTheme(value);
+    persistSession({ previewTheme: value });
+    const chrome = d.getElementById("preview-theme");
+    if (chrome) chrome.value = value;
+  });
+  on(d.getElementById("editor-theme"), "change", (event) => {
+    if (editorTheme) editorTheme.value = event.target.value;
+  });
+  on(d.getElementById("preview-theme"), "change", (event) => {
+    if (previewTheme) previewTheme.value = event.target.value;
+  });
+
+  on(d.getElementById("editor-font-size"), "change", (event) => {
+    const n = Number(event.target.value);
+    if (!Number.isFinite(n) || n <= 0) return;
+    editorDefaults.fontSize = n;
+    editorApi()?.setEditorFont?.(editorDefaults.fontSize, editorDefaults.lineHeight);
+  });
+  on(d.getElementById("editor-line-height"), "change", (event) => {
+    const n = Number(event.target.value);
+    if (!Number.isFinite(n) || n <= 0) return;
+    editorDefaults.lineHeight = n;
+    editorApi()?.setEditorFont?.(editorDefaults.fontSize, editorDefaults.lineHeight);
+  });
+  on(d.getElementById("preview-font-size"), "change", (event) => {
+    const n = Number(event.target.value);
+    if (!Number.isFinite(n) || n <= 0) return;
+    previewDefaults.fontSize = n;
+    applyPreviewFont();
+  });
+  on(d.getElementById("preview-line-height"), "change", (event) => {
+    const n = Number(event.target.value);
+    if (!Number.isFinite(n) || n <= 0) return;
+    previewDefaults.lineHeight = n;
+    applyPreviewFont();
+  });
+  on(d.getElementById("highlight-active-line"), "change", (event) => {
+    editorApi()?.setHighlightActiveLine?.(!!event.target.checked);
+  });
+  on(d.getElementById("show-line-numbers"), "change", (event) => {
+    editorApi()?.setLineNumbers?.(!!event.target.checked);
+  });
+  on(d.getElementById("settings-word-wrap"), "change", (event) => {
+    editorApi()?.setLineWrapping?.(!!event.target.checked);
+  });
+  on(d.getElementById("settings-tab-size"), "change", (event) => {
+    const n = Number(event.target.value);
+    if (!Number.isFinite(n) || n <= 0) return;
+    editorApi()?.setTabSize?.(n);
+  });
+  on(d.getElementById("settings-soft-tabs"), "change", (event) => {
+    editorApi()?.setSoftTabs?.(!!event.target.checked);
+  });
+
+  function applyAutosaveFromControls() {
+    const mode = d.getElementById("settings-autosave");
+    const delayEl = d.getElementById("settings-autosave-delay");
+    autosave.enabled = mode ? mode.value !== "off" : true;
+    const delay = delayEl ? Number(delayEl.value) : autosave.delay;
+    if (Number.isFinite(delay) && delay > 0) autosave.delay = delay;
+    if (!autosave.enabled) cancelAutosave();
+  }
+  on(d.getElementById("settings-autosave"), "change", applyAutosaveFromControls);
+  on(d.getElementById("settings-autosave-delay"), "change", applyAutosaveFromControls);
+
+  on(d.getElementById("settings-session-restore"), "change", (event) => {
+    session.restore = !!event.target.checked;
+    persistSession({ restore: session.restore });
+  });
+  on(d.getElementById("settings-find-case"), "change", (event) => {
+    findOptions.caseSensitive = !!event.target.checked;
+  });
+  on(d.getElementById("settings-find-whole-word"), "change", (event) => {
+    findOptions.wholeWord = !!event.target.checked;
+  });
+  on(d.getElementById("settings-live-preview"), "change", (event) => {
+    preview.live = !!event.target.checked;
+  });
+  on(d.getElementById("settings-frontmatter"), "change", (event) => {
+    editorApi()?.setShowFrontmatter?.(!!event.target.checked);
+  });
+  on(d.getElementById("settings-html-js"), "change", (event) => {
+    setHtmlJsEnabled(!!event.target.checked);
+    persistSession({ htmlJs: !!event.target.checked });
+  });
+  on(d.getElementById("html-js"), "change", () => {
+    syncHtmlJsControl();
+  });
+
+  on(d.getElementById("settings-default-folder"), "change", (event) => {
+    persistSession({ defaultFolder: event.target.value });
+  });
+  on(d.getElementById("settings-remember-layout"), "change", (event) => {
+    layout.remember = !!event.target.checked;
+    if (layout.remember) persistLayout();
+  });
+
+  const sortMain = d.getElementById("explorer-sort");
+  const sortSettings = d.getElementById("settings-explorer-sort");
+  on(sortSettings, "change", () => {
+    if (!sortMain) return;
+    sortMain.value = sortSettings.value;
+    sortMain.dispatchEvent(new Event("change"));
+  });
+  on(sortMain, "change", () => {
+    if (sortSettings) sortSettings.value = sortMain.value;
+  });
+
+  const extMain = d.getElementById("show-extensions");
+  const extSettings = d.getElementById("settings-show-extensions");
+  on(extSettings, "change", () => {
+    if (!extMain) return;
+    extMain.checked = extSettings.checked;
+    extMain.dispatchEvent(new Event("change"));
+  });
+  on(extMain, "change", () => {
+    if (extSettings) extSettings.checked = extMain.checked;
+  });
+
+  syncFromState();
+}
+
+export function mountSettings() {
+  bindSettings();
+}
+
+try {
+  bindSettings();
+} catch {
+  // Node import / mock document
+}
