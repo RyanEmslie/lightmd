@@ -593,11 +593,46 @@ function aboutHasVersion(section) {
   return false;
 }
 
-function aboutHasLicenseTbd(section) {
-  return (
+function aboutNamesMit(section) {
+  if (/\bMIT\s+Licen[sc]e\b/i.test(section)) return true;
+  if (/Licen[sc]e\s*(?:is|:|-)?\s*MIT\b/i.test(section)) return true;
+  if (/Licen[sc]e[\s\S]{0,80}\bMIT\b/i.test(section)) return true;
+  if (/\bMIT\b[\s\S]{0,80}Licen[sc]e/i.test(section)) return true;
+  return false;
+}
+
+function aboutLinksLicense(section) {
+  if (
+    /<a\b[^>]*\bhref=["'](?:(?:\.\.?\/)*)LICENSE(?:[?#][^"']*)?["']/i.test(
+      section,
+    )
+  ) {
+    return true;
+  }
+  if (
+    /<a\b[^>]*\bhref=["'][^"']*\/LICENSE(?:[?#][^"']*)?["']/i.test(section)
+  ) {
+    return true;
+  }
+  if (/\.href\s*=\s*["'](?:(?:\.\.?\/)*)LICENSE["']/i.test(section)) return true;
+  if (
+    /setAttribute\(\s*["']href["']\s*,\s*["'](?:(?:\.\.?\/)*)LICENSE["']/i.test(
+      section,
+    )
+  ) {
+    return true;
+  }
+  return false;
+}
+
+function aboutHasMitLicense(section) {
+  if (
     /licen[sc]e\s*(?:is\s*)?TBD/i.test(section) ||
     /TBD[\s\S]{0,40}licen[sc]e/i.test(section)
-  );
+  ) {
+    return false;
+  }
+  return aboutNamesMit(section) && aboutLinksLicense(section);
 }
 
 function aboutHasRepoLink(section) {
@@ -935,13 +970,16 @@ test("keyboard list is read-only", () => {
   );
 });
 
-test("about has version, license TBD, and repo link", () => {
+test("about has version, MIT license, and repo link", () => {
   const opened = openingSettings();
   assertOpensSettings(opened);
   const section = aboutSection(opened.blob);
   assert.ok(section, "Settings must include an About group");
   assert.ok(aboutHasVersion(section), "About must include the app version");
-  assert.ok(aboutHasLicenseTbd(section), "About must include license TBD");
+  assert.ok(
+    aboutHasMitLicense(section),
+    "About must name MIT (not TBD) and link LICENSE",
+  );
   assert.ok(
     aboutHasRepoLink(section),
     "About must include a repo link (github.com/clearly-bots/lightmd)",
