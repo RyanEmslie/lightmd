@@ -51,16 +51,36 @@ fn listed_file(path: &Path) -> bool {
     )
 }
 
+pub fn read_file(root: &Path, relative: impl AsRef<Path>) -> io::Result<String> {
+    let root = root.canonicalize()?;
+    let path = root.join(relative).canonicalize()?;
+    path.strip_prefix(&root).map_err(|_| {
+        io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "path is outside workspace root",
+        )
+    })?;
+    fs::read_to_string(path)
+}
+
 #[tauri::command]
 fn list_workspace(path: String) -> Result<Vec<Entry>, String> {
     list(Path::new(&path)).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn read_workspace_file(path: String, relative: String) -> Result<String, String> {
+    read_file(Path::new(&path), &relative).map_err(|e| e.to_string())
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
-        .invoke_handler(tauri::generate_handler![list_workspace])
+        .invoke_handler(tauri::generate_handler![
+            list_workspace,
+            read_workspace_file
+        ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }
@@ -68,6 +88,7 @@ pub fn run() {
 #[cfg(test)]
 mod tests {
     use super::list;
+    use super::read_file;
     use std::collections::HashSet;
     use std::path::PathBuf;
 
@@ -90,6 +111,7 @@ mod tests {
             ("a.md".into(), false),
             ("b.html".into(), false),
             ("c.htm".into(), false),
+            ("note.md".into(), false),
             ("nested".into(), true),
             ("nested/d.md".into(), false),
         ]
@@ -98,6 +120,27 @@ mod tests {
         assert_eq!(
             got, expected,
             "list must return md/html/htm files plus nested dirs and ignore txt"
+        );
+    }
+
+    #[test]
+    fn read_file_returns_note_md_body() {
+        let body =
+            read_file(&workspace_fixture(), "note.md").expect("read_file should read note.md");
+        assert_eq!(
+            body.replace('\r', ""),
+            "# Note\n\nKnown body for open-file.\n",
+            "read_file(root, relative) must return the known body of note.md"
+        );
+    }
+
+    #[test]
+    fn read_file_rejects_parent_relative_path() {
+        let result = read_file(&workspace_fixture(), "../outside.md");
+        assert!(
+            result.is_err(),
+            "read_file(workspace_root, \"../outside.md\") must be Err, got Ok({:?})",
+            result.ok()
         );
     }
 
