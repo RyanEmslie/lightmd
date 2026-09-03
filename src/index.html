@@ -41,12 +41,32 @@
         height: 100%;
         background: var(--border);
       }
+
+      #explorer {
+        display: flex;
+        flex-direction: column;
+      }
+
+      #open-folder {
+        flex: none;
+        align-self: start;
+      }
+
+      #file-list {
+        flex: 1;
+        min-height: 0;
+        overflow: auto;
+        list-style: none;
+        margin: 8px 0 0;
+        padding: 0;
+      }
     </style>
   </head>
   <body>
     <div id="shell">
       <aside id="explorer" class="pane">
-        Explorer
+        <button type="button" id="open-folder">Open Folder</button>
+        <ul id="file-list"></ul>
         <div class="splitter" role="separator" aria-orientation="vertical"></div>
       </aside>
       <main id="editor" class="pane">
@@ -55,5 +75,50 @@
       </main>
       <section id="preview" class="pane">Preview</section>
     </div>
+    <script>
+      (function () {
+        const button = document.getElementById("open-folder");
+        const fileList = document.getElementById("file-list");
+
+        function folderPath(selected) {
+          if (!selected) return null;
+          if (Array.isArray(selected)) return folderPath(selected[0]);
+          if (typeof selected === "string") return selected;
+          if (typeof selected.path === "string") return selected.path;
+          return null;
+        }
+
+        function render(entries) {
+          fileList.replaceChildren();
+          for (const entry of entries) {
+            const item = document.createElement("li");
+            item.textContent = entry.relative_path;
+            item.dataset.dir = entry.is_dir ? "true" : "false";
+            fileList.appendChild(item);
+          }
+        }
+
+        async function pickFolder() {
+          const tauri = window.__TAURI__;
+          if (!tauri) return null;
+          if (tauri.dialog && typeof tauri.dialog.open === "function") {
+            return tauri.dialog.open({ directory: true, multiple: false });
+          }
+          return tauri.core.invoke("plugin:dialog|open", {
+            options: { directory: true, multiple: false },
+          });
+        }
+
+        button.addEventListener("click", async () => {
+          const selected = await pickFolder();
+          const path = folderPath(selected);
+          if (!path) return;
+          const entries = await window.__TAURI__.core.invoke("list_workspace", {
+            path,
+          });
+          render(entries);
+        });
+      })();
+    </script>
   </body>
 </html>

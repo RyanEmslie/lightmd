@@ -1,6 +1,66 @@
+use std::fs;
+use std::io;
+use std::path::Path;
+
+#[derive(Clone, Debug, serde::Serialize)]
+pub struct Entry {
+    pub relative_path: String,
+    pub is_dir: bool,
+}
+
+pub fn list(root: &Path) -> io::Result<Vec<Entry>> {
+    let mut entries = Vec::new();
+    collect(root, root, &mut entries)?;
+    Ok(entries)
+}
+
+fn collect(root: &Path, dir: &Path, entries: &mut Vec<Entry>) -> io::Result<()> {
+    for child in fs::read_dir(dir)? {
+        let child = child?;
+        let path = child.path();
+        let file_type = child.file_type()?;
+        let relative_path = path
+            .strip_prefix(root)
+            .unwrap_or(path.as_path())
+            .to_string_lossy()
+            .replace('\\', "/");
+
+        if file_type.is_dir() {
+            entries.push(Entry {
+                relative_path,
+                is_dir: true,
+            });
+            collect(root, &path, entries)?;
+        } else if file_type.is_file() && listed_file(&path) {
+            entries.push(Entry {
+                relative_path,
+                is_dir: false,
+            });
+        }
+    }
+    Ok(())
+}
+
+fn listed_file(path: &Path) -> bool {
+    matches!(
+        path.extension()
+            .and_then(|ext| ext.to_str())
+            .map(|ext| ext.to_ascii_lowercase())
+            .as_deref(),
+        Some("md" | "html" | "htm")
+    )
+}
+
+#[tauri::command]
+fn list_workspace(path: String) -> Result<Vec<Entry>, String> {
+    list(Path::new(&path)).map_err(|e| e.to_string())
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        .plugin(tauri_plugin_dialog::init())
+        .invoke_handler(tauri::generate_handler![list_workspace])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }
