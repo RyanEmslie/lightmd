@@ -98,6 +98,10 @@ pub fn read_file(root: &Path, relative: impl AsRef<Path>) -> io::Result<String> 
     fs::read_to_string(confined_path(root, relative)?)
 }
 
+pub fn read_image(root: &Path, relative: impl AsRef<Path>) -> io::Result<Vec<u8>> {
+    fs::read(confined_path(root, relative)?)
+}
+
 pub fn write_file(
     root: &Path,
     relative: impl AsRef<Path>,
@@ -127,6 +131,11 @@ fn write_workspace_file(path: String, relative: String, contents: String) -> Res
     write_file(Path::new(&path), &relative, contents).map_err(|e| e.to_string())
 }
 
+#[tauri::command]
+fn read_workspace_image(path: String, relative: String) -> Result<Vec<u8>, String> {
+    read_image(Path::new(&path), &relative).map_err(|e| e.to_string())
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -134,7 +143,8 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             list_workspace,
             read_workspace_file,
-            write_workspace_file
+            write_workspace_file,
+            read_workspace_image
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
