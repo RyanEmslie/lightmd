@@ -7,6 +7,7 @@ import { findExtension, runFind } from "./find.js";
 import { preview as previewConfig, renderPreview, rewritePreviewImages, bindPreviewLinks } from "./preview.js";
 import { isHtmlFile, showHtmlViewer, hideHtmlViewer } from "./html-viewer.js";
 import { applyTheme, setEditorTheme, setPreviewTheme } from "./palettes.js";
+import { restoreLayout } from "./layout.js";
 
 const buffer = document.getElementById("editor-buffer");
 const parent = document.getElementById("editor-view");
@@ -213,3 +214,4 @@ if (previewThemeSelect) {
 window.lightmdEditor = { view, setDoc, lineNumbers: editorDefaults.lineNumbers };
 window.lightmdScheduleAutoSave = scheduleAutoSave;
 window.lightmdCancelAutosave = cancelAutosave;
+restoreLayout();
