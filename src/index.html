@@ -5,6 +5,10 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>LightMD</title>
     <style>
+      :root {
+        --border: color-mix(in srgb, CanvasText 18%, Canvas);
+      }
+
       html,
       body {
         margin: 0;
@@ -13,7 +17,43 @@
         color: CanvasText;
         font: 13px/1.25 system-ui, sans-serif;
       }
+
+      #shell {
+        display: grid;
+        grid-template-columns: 240px 1fr 1fr;
+        height: 100%;
+      }
+
+      .pane {
+        position: relative;
+        min-width: 160px;
+        min-height: 0;
+        overflow: hidden;
+        padding: 8px 12px;
+        box-sizing: border-box;
+      }
+
+      .splitter {
+        position: absolute;
+        top: 0;
+        right: 0;
+        width: 1px;
+        height: 100%;
+        background: var(--border);
+      }
     </style>
   </head>
-  <body></body>
+  <body>
+    <div id="shell">
+      <aside id="explorer" class="pane">
+        Explorer
+        <div class="splitter" role="separator" aria-orientation="vertical"></div>
+      </aside>
+      <main id="editor" class="pane">
+        Editor
+        <div class="splitter" role="separator" aria-orientation="vertical"></div>
+      </main>
+      <section id="preview" class="pane">Preview</section>
+    </div>
+  </body>
 </html>
