@@ -56,6 +56,7 @@
         grid-template-columns: 240px 1fr 1fr;
         flex: 1;
         min-height: 0;
+        transition: grid-template-columns 120ms;
       }
 
       .pane {
@@ -65,6 +66,12 @@
         overflow: hidden;
         padding: 8px 12px;
         box-sizing: border-box;
+      }
+
+      .pane.collapsed {
+        min-width: 0;
+        width: 0;
+        padding: 0;
       }
 
       .splitter {
@@ -359,6 +366,7 @@
       <aside id="explorer" class="pane">
         <button type="button" id="open-folder">Open Folder</button>
         <div id="explorer-toolbar">
+          <button type="button" data-pane-toggle="explorer" aria-pressed="true">Hide</button>
           <label for="explorer-sort">Sort</label>
           <select id="explorer-sort">
             <option value="name">Name</option>
@@ -375,9 +383,16 @@
       <main id="editor" class="pane">
         <textarea id="editor-buffer"></textarea>
         <div id="editor-chrome">
+          <button type="button" data-pane-toggle="editor" aria-pressed="true">Hide</button>
           <button type="button" id="save">Save</button>
           <button type="button" id="find">Find</button>
           <input type="search" id="find-query" placeholder="Find in file" autocomplete="off" />
+          <label for="pane-layout">Layout</label>
+          <select id="pane-layout">
+            <option value="three-pane" selected>Three panes</option>
+            <option value="editor-only">Editor only</option>
+            <option value="reader-only">Reader only</option>
+          </select>
           <label for="editor-theme">Editor theme</label>
           <select id="editor-theme">
             <option>Light</option>
@@ -396,6 +411,7 @@
       </main>
       <section id="preview" class="pane">
         <div id="preview-chrome">
+          <button type="button" data-pane-toggle="preview" aria-pressed="true">Hide</button>
           <label for="preview-theme">Preview theme</label>
           <select id="preview-theme">
             <option>Light</option>
