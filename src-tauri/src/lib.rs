@@ -14,6 +14,37 @@ pub fn list(root: &Path) -> io::Result<Vec<Entry>> {
     Ok(entries)
 }
 
+pub fn sort_by_name(root: &Path) -> io::Result<Vec<Entry>> {
+    let mut entries = list(root)?;
+    entries.sort_by(|a, b| {
+        a.relative_path
+            .to_ascii_lowercase()
+            .cmp(&b.relative_path.to_ascii_lowercase())
+    });
+    Ok(entries)
+}
+
+pub fn sort_by_modified(root: &Path) -> io::Result<Vec<Entry>> {
+    let mut entries = list(root)?;
+    entries.sort_by(|a, b| {
+        modified_time(root, &b.relative_path)
+            .cmp(&modified_time(root, &a.relative_path))
+            .then_with(|| {
+                a.relative_path
+                    .to_ascii_lowercase()
+                    .cmp(&b.relative_path.to_ascii_lowercase())
+            })
+    });
+    Ok(entries)
+}
+
+fn modified_time(root: &Path, relative: &str) -> std::time::SystemTime {
+    root.join(relative)
+        .metadata()
+        .and_then(|m| m.modified())
+        .unwrap_or(std::time::UNIX_EPOCH)
+}
+
 fn collect(root: &Path, dir: &Path, entries: &mut Vec<Entry>) -> io::Result<()> {
     for child in fs::read_dir(dir)? {
         let child = child?;
@@ -64,8 +95,14 @@ pub fn read_file(root: &Path, relative: impl AsRef<Path>) -> io::Result<String> 
 }
 
 #[tauri::command]
-fn list_workspace(path: String) -> Result<Vec<Entry>, String> {
-    list(Path::new(&path)).map_err(|e| e.to_string())
+fn list_workspace(path: String, sort: Option<String>) -> Result<Vec<Entry>, String> {
+    let root = Path::new(&path);
+    match sort.as_deref() {
+        Some("modified") => sort_by_modified(root),
+        Some("name") => sort_by_name(root),
+        _ => list(root),
+    }
+    .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -112,6 +149,7 @@ mod tests {
         let expected: HashSet<(String, bool)> = [
             ("a.md".into(), false),
             ("b.html".into(), false),
+            ("b.md".into(), false),
             ("c.htm".into(), false),
             ("note.md".into(), false),
             ("nested".into(), true),
