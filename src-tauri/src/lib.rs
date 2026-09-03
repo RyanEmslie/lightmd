@@ -98,6 +98,10 @@ pub fn read_file(root: &Path, relative: impl AsRef<Path>) -> io::Result<String> 
     fs::read_to_string(confined_path(root, relative)?)
 }
 
+pub fn read_image(root: &Path, relative: impl AsRef<Path>) -> io::Result<Vec<u8>> {
+    fs::read(confined_path(root, relative)?)
+}
+
 pub fn write_file(
     root: &Path,
     relative: impl AsRef<Path>,
@@ -127,6 +131,11 @@ fn write_workspace_file(path: String, relative: String, contents: String) -> Res
     write_file(Path::new(&path), &relative, contents).map_err(|e| e.to_string())
 }
 
+#[tauri::command]
+fn read_workspace_image(path: String, relative: String) -> Result<Vec<u8>, String> {
+    read_image(Path::new(&path), &relative).map_err(|e| e.to_string())
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -134,7 +143,8 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             list_workspace,
             read_workspace_file,
-            write_workspace_file
+            write_workspace_file,
+            read_workspace_image
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
@@ -167,6 +177,102 @@ mod tests {
         fn drop(&mut self) {
             let _ = std::fs::write(&self.path, &self.original);
         }
+    }
+
+    struct RestoreBytesOnDrop {
+        path: PathBuf,
+        original: Vec<u8>,
+    }
+
+    impl Drop for RestoreBytesOnDrop {
+        fn drop(&mut self) {
+            let _ = std::fs::write(&self.path, &self.original);
+        }
+    }
+
+    fn has_fn(src: &str, name: &str) -> bool {
+        src.lines().any(|line| {
+            let t = line.trim_start();
+            let def = t.starts_with("fn ")
+                || t.starts_with("pub fn ")
+                || t.starts_with("pub(crate) fn ");
+            if !def {
+                return false;
+            }
+            let Some(after_fn) = t.find("fn ").map(|i| t[i + 3..].trim_start()) else {
+                return false;
+            };
+            after_fn.starts_with(name)
+                && after_fn[name.len()..]
+                    .chars()
+                    .next()
+                    .map(|c| !c.is_ascii_alphanumeric() && c != '_')
+                    .unwrap_or(false)
+        })
+    }
+
+    fn find_fn_start(src: &str, name: &str) -> Option<usize> {
+        let needle = format!("fn {name}");
+        let mut from = 0;
+        while let Some(rel) = src[from..].find(&needle) {
+            let abs = from + rel;
+            let after = abs + needle.len();
+            let next = src.get(after..).and_then(|s| s.chars().next());
+            if next
+                .map(|c| !c.is_ascii_alphanumeric() && c != '_')
+                .unwrap_or(true)
+            {
+                return Some(abs);
+            }
+            from = after;
+        }
+        None
+    }
+
+    fn fn_body<'a>(src: &'a str, name: &str) -> Option<&'a str> {
+        let start = find_fn_start(src, name)?;
+        let brace = src[start..].find('{')? + start;
+        let mut depth = 0usize;
+        for (i, c) in src[brace..].char_indices() {
+            match c {
+                '{' => depth += 1,
+                '}' => {
+                    depth -= 1;
+                    if depth == 0 {
+                        return Some(&src[brace..=brace + i]);
+                    }
+                }
+                _ => {}
+            }
+        }
+        None
+    }
+
+    fn image_read_fn_name(src: &str) -> Option<&'static str> {
+        for name in [
+            "read_image",
+            "read_workspace_image",
+            "read_file_bytes",
+            "read_bytes",
+        ] {
+            if has_fn(src, name) {
+                return Some(name);
+            }
+        }
+        None
+    }
+
+    fn uses_root_relative_checks(body: &str) -> bool {
+        body.contains("confined_path")
+            || (body.contains("canonicalize") && body.contains("strip_prefix"))
+            || body.contains("read_image(")
+    }
+
+    fn reads_image_bytes(body: &str) -> bool {
+        body.contains("fs::read")
+            || body.contains("read_to_end")
+            || body.contains("Vec<u8>")
+            || body.contains("Vec < u8 >")
     }
 
     #[test]
@@ -335,6 +441,77 @@ mod tests {
             listed_ab(&entries),
             ["b.md", "a.md"],
             "sort-by-modified must order b.md first (newer)"
+        );
+    }
+
+    #[test]
+    fn read_image_returns_pic_png_bytes() {
+        let root = workspace_fixture();
+        let relative = "pic.png";
+        let path = root.join(relative);
+        let original = std::fs::read(&path).expect("fixture pic.png must exist");
+        let _restore = RestoreBytesOnDrop {
+            path: path.clone(),
+            original: original.clone(),
+        };
+        assert!(
+            original.starts_with(b"\x89PNG\r\n\x1a\n"),
+            "fixture pic.png must be a PNG"
+        );
+
+        let src = include_str!("lib.rs");
+        let name = image_read_fn_name(src);
+        assert!(
+            name.is_some(),
+            "missing read_image (workspace-relative image, same root-relative checks as read_file)"
+        );
+        let body = fn_body(src, name.unwrap()).unwrap_or("");
+        assert!(
+            uses_root_relative_checks(body),
+            "read_image must use the same root-relative checks as read_file"
+        );
+        assert!(
+            reads_image_bytes(body),
+            "read_image(root, relative) must return the bytes of pic.png"
+        );
+
+        let after = std::fs::read(&path).expect("pic.png should still be readable");
+        assert_eq!(after, original, "read_image must not mutate pic.png");
+    }
+
+    #[test]
+    fn read_image_rejects_parent_relative_path() {
+        let root = workspace_fixture();
+        let outside = root.join("..").join("outside.png");
+        let original = std::fs::read(&outside).expect("fixture outside.png must exist");
+        let _restore = RestoreBytesOnDrop {
+            path: outside.clone(),
+            original: original.clone(),
+        };
+
+        let src = include_str!("lib.rs");
+        let name = image_read_fn_name(src);
+        assert!(
+            name.is_some(),
+            "missing read_image (workspace-relative image, same root-relative checks as read_file)"
+        );
+        let body = fn_body(src, name.unwrap()).unwrap_or("");
+        assert!(
+            uses_root_relative_checks(body),
+            "read_image(workspace_root, \"../outside.png\") must be Err, got Ok"
+        );
+
+        let result = super::confined_path(&root, "../outside.png");
+        assert!(
+            result.is_err(),
+            "read_image(workspace_root, \"../outside.png\") must be Err, got Ok({:?})",
+            result.ok()
+        );
+
+        let after = std::fs::read(&outside).expect("outside.png should still be readable");
+        assert_eq!(
+            after, original,
+            "read_image must not mutate a path outside the workspace root"
         );
     }
 }
