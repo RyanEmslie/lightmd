@@ -128,6 +128,7 @@ mod tests {
     use super::read_file;
     use super::sort_by_modified;
     use super::sort_by_name;
+    use super::write_file;
     use std::collections::HashSet;
     use std::path::PathBuf;
 
@@ -137,6 +138,17 @@ mod tests {
             .join("tests")
             .join("fixtures")
             .join("workspace")
+    }
+
+    struct RestoreOnDrop {
+        path: PathBuf,
+        original: String,
+    }
+
+    impl Drop for RestoreOnDrop {
+        fn drop(&mut self) {
+            let _ = std::fs::write(&self.path, &self.original);
+        }
     }
 
     #[test]
@@ -181,6 +193,57 @@ mod tests {
             result.is_err(),
             "read_file(workspace_root, \"../outside.md\") must be Err, got Ok({:?})",
             result.ok()
+        );
+    }
+
+    #[test]
+    fn write_file_persists_so_read_file_returns_the_buffer() {
+        let root = workspace_fixture();
+        let relative = "note.md";
+        let path = root.join(relative);
+        let original =
+            std::fs::read_to_string(&path).expect("fixture note.md must exist");
+        let _restore = RestoreOnDrop {
+            path,
+            original,
+        };
+        let contents = "written by write_file test\n";
+        write_file(&root, relative, contents)
+            .expect("write_file should write the buffer");
+        let body = read_file(&root, relative)
+            .expect("read_file should read back the written buffer");
+        assert_eq!(
+            body.replace('\r', ""),
+            contents,
+            "write_file(root, relative, contents) must persist so a later read_file returns that text"
+        );
+    }
+
+    #[test]
+    fn write_file_rejects_parent_relative_path() {
+        let root = workspace_fixture();
+        let outside = root.join("..").join("outside.md");
+        let original =
+            std::fs::read_to_string(&outside).expect("fixture outside.md must exist");
+        let _restore = RestoreOnDrop {
+            path: outside.clone(),
+            original: original.clone(),
+        };
+        let result = write_file(
+            &root,
+            "../outside.md",
+            "should not write outside workspace\n",
+        );
+        assert!(
+            result.is_err(),
+            "write_file(workspace_root, \"../outside.md\", ...) must be Err, got Ok({:?})",
+            result.ok()
+        );
+        let after = std::fs::read_to_string(&outside)
+            .expect("outside.md should still be readable");
+        assert_eq!(
+            after, original,
+            "write_file must not mutate a path outside the workspace root"
         );
     }
 
