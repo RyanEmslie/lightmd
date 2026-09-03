@@ -4,12 +4,19 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
+    "bundle": "esbuild src/editor.js --bundle --outfile=src/editor.bundle.js --format=iife --minify",
     "dev": "tauri dev",
     "build": "tauri build",
     "tauri": "tauri",
     "test": "node --test tests/*.test.mjs"
   },
   "devDependencies": {
-    "@tauri-apps/cli": "^2"
+    "@tauri-apps/cli": "^2",
+    "esbuild": "^0.28.2"
+  },
+  "dependencies": {
+    "@codemirror/commands": "^6.11.0",
+    "@codemirror/lang-markdown": "^6.5.2",
+    "@codemirror/view": "^6.43.10"
   }
 }

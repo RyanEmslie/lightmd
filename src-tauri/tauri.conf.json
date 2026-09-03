@@ -4,7 +4,9 @@
   "version": "0.0.0",
   "identifier": "com.lightmd.app",
   "build": {
-    "frontendDist": "../src"
+    "frontendDist": "../src",
+    "beforeDevCommand": "npm run bundle",
+    "beforeBuildCommand": "npm run bundle"
   },
   "app": {
     "withGlobalTauri": true,

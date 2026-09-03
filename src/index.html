@@ -129,17 +129,33 @@
       }
 
       #editor-buffer {
+        position: absolute;
+        width: 1px;
+        height: 1px;
+        padding: 0;
+        margin: -1px;
+        overflow: hidden;
+        clip: rect(0, 0, 0, 0);
+        white-space: nowrap;
+        border: 0;
+        resize: none;
+      }
+
+      #editor-view {
         flex: 1;
         min-height: 0;
         width: 100%;
-        box-sizing: border-box;
-        resize: none;
-        border: 0;
-        padding: 0;
-        margin: 0;
-        background: transparent;
-        color: inherit;
-        font: inherit;
+        overflow: hidden;
+        font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+        font-size: 14px;
+        line-height: 1.45;
+      }
+
+      #editor-view .cm-editor {
+        height: 100%;
+        font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+        font-size: 14px;
+        line-height: 1.45;
       }
     </style>
   </head>
@@ -163,6 +179,7 @@
       </aside>
       <main id="editor" class="pane">
         <textarea id="editor-buffer"></textarea>
+        <div id="editor-view"></div>
         <div class="splitter" role="separator" aria-orientation="vertical"></div>
       </main>
       <section id="preview" class="pane">Preview</section>
@@ -294,8 +311,12 @@
             relative,
           });
           buffer.value = body;
+          if (window.lightmdEditor) {
+            window.lightmdEditor.setDoc(body);
+          }
         });
       })();
     </script>
+    <script src="./editor.bundle.js"></script>
   </body>
 </html>
