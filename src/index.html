@@ -123,9 +123,38 @@
         content: "▾";
       }
 
-      #editor {
+      #editor,
+      #preview {
         display: flex;
         flex-direction: column;
+      }
+
+      #frontmatter {
+        flex: none;
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px 16px;
+        margin: 0 0 8px;
+        padding: 0 0 8px;
+        border-bottom: 1px solid var(--border);
+        font-size: 12px;
+        line-height: 1.25;
+      }
+
+      #frontmatter[hidden] {
+        display: none;
+      }
+
+      #frontmatter .fm-key {
+        font-weight: 600;
+        margin-right: 8px;
+      }
+
+      #preview-body {
+        flex: 1;
+        min-height: 0;
+        overflow: auto;
+        white-space: pre-wrap;
       }
 
       #editor-buffer {
@@ -179,10 +208,13 @@
       </aside>
       <main id="editor" class="pane">
         <textarea id="editor-buffer"></textarea>
+        <div id="frontmatter" hidden></div>
         <div id="editor-view"></div>
         <div class="splitter" role="separator" aria-orientation="vertical"></div>
       </main>
-      <section id="preview" class="pane">Preview</section>
+      <section id="preview" class="pane">
+        <div id="preview-body">Preview</div>
+      </section>
     </div>
     <script>
       (function () {
