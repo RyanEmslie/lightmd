@@ -5,6 +5,7 @@ import { parseFrontmatter } from "./frontmatter.js";
 import { cancelAutosave, scheduleAutoSave } from "./autosave.js";
 import { findExtension, runFind } from "./find.js";
 import { preview as previewConfig, renderPreview, rewritePreviewImages, bindPreviewLinks } from "./preview.js";
+import { isHtmlFile, showHtmlViewer, hideHtmlViewer } from "./html-viewer.js";
 
 const buffer = document.getElementById("editor-buffer");
 const parent = document.getElementById("editor-view");
@@ -77,16 +78,34 @@ const view = new EditorView({
   extensions,
 });
 
-function setPreview(markdownBody) {
+function currentRelative() {
+  const ws = window.lightmdWorkspace;
+  return ws && ws.relative;
+}
+
+function setPreview(content) {
+  if (isHtmlFile(currentRelative())) {
+    showHtmlViewer(content);
+    return;
+  }
+  hideHtmlViewer();
   const target = previewBody || previewPane;
   if (!target) return;
   target.replaceChildren();
-  target.insertAdjacentHTML("afterbegin", renderPreview(markdownBody));
+  target.insertAdjacentHTML("afterbegin", renderPreview(content));
   const ws = window.lightmdWorkspace;
   void rewritePreviewImages(target, ws && ws.path, ws && ws.relative);
 }
 
 function applyFrontmatter(text, updatePreview = true) {
+  if (isHtmlFile(currentRelative())) {
+    if (frontmatterEl) {
+      frontmatterEl.replaceChildren();
+      frontmatterEl.hidden = true;
+    }
+    if (updatePreview) setPreview(text);
+    return;
+  }
   const parsed = parseFrontmatter(text);
   const show = showFrontmatterBlock && parsed.hasFrontmatter;
   if (frontmatterEl) {
