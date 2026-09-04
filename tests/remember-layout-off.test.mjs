@@ -7,7 +7,7 @@ const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const srcDir = join(root, "src");
 const LAYOUT_KEY = "lightmd.layout";
 
-const SAVED_ORDER = ["preview", "editor", "explorer"];
+const SAVED_ORDER = ["explorer", "preview", "editor"];
 const SAVED_WINDOW = { width: 1111, height: 777 };
 const SAVED_WIDTHS = { explorer: 321, editor: 432, preview: 543 };
 const DEFAULT_ORDER = ["explorer", "editor", "preview"];
