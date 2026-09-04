@@ -196,6 +196,13 @@
         cursor: pointer;
       }
 
+      #file-list li[data-dir="false"][aria-selected="true"],
+      #file-list li[data-dir="false"].selected {
+        background: var(--bg-elevated);
+        color: var(--fg);
+        outline: 1px solid var(--accent);
+      }
+
       #file-list summary {
         display: flex;
         align-items: center;
@@ -777,12 +784,23 @@
           list.appendChild(item);
         }
 
+        function markActiveFile() {
+          const rows = fileList.querySelectorAll('li[data-dir="false"]');
+          for (const row of rows) {
+            const on = Boolean(currentRelative) && row.dataset.path === currentRelative;
+            row.classList.toggle("selected", on);
+            if (on) row.setAttribute("aria-selected", "true");
+            else row.removeAttribute("aria-selected");
+          }
+        }
+
         function render(entries) {
           fileList.replaceChildren();
           const tree = treeFrom(entries);
           for (const child of tree.children) {
             appendNode(child, fileList);
           }
+          markActiveFile();
         }
 
         async function pickFolder() {
@@ -849,6 +867,7 @@
           });
           currentRelative = relative;
           if (statusPath) statusPath.textContent = currentRelative;
+          markActiveFile();
           buffer.value = body;
           if (window.lightmdEditor) {
             window.lightmdEditor.setDoc(body);
