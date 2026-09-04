@@ -718,6 +718,7 @@
       <aside id="explorer" class="pane" tabindex="0">
         <button type="button" id="open-folder">Open Folder</button>
         <div id="explorer-toolbar">
+          <button type="button" id="new-note">New Note</button>
           <button type="button" data-pane-toggle="explorer" aria-pressed="true">Hide</button>
           <label for="explorer-sort">Sort</label>
           <select id="explorer-sort">
@@ -750,6 +751,7 @@
         <div id="editor-chrome">
           <button type="button" data-pane-toggle="editor" aria-pressed="true">Hide</button>
           <button type="button" id="save">Save</button>
+          <button type="button" id="save-as">Save As</button>
           <button type="button" id="find">Find</button>
           <input type="search" id="find-query" placeholder="Find in file" autocomplete="off" />
           <label for="editor-theme">Editor theme</label>
@@ -804,11 +806,15 @@
     <script>
       (function () {
         const button = document.getElementById("open-folder");
+        const newNoteButton = document.getElementById("new-note");
         const saveButton = document.getElementById("save");
+        const saveAsButton = document.getElementById("save-as");
         const dirtyDot = document.getElementById("dirty");
         const statusPath = document.getElementById("status-path");
         const fileList = document.getElementById("file-list");
         const buffer = document.getElementById("editor-buffer");
+        const previewBody = document.getElementById("preview-body");
+        const htmlViewer = document.getElementById("html-viewer");
         const sortSelect = document.getElementById("explorer-sort");
         const extensionsToggle = document.getElementById("show-extensions");
         let workspacePath = null;
@@ -952,6 +958,147 @@
           }
         }
 
+        function normalizeSlashes(value) {
+          return String(value ?? "").replace(/\\/g, "/");
+        }
+
+        function hasFileExtension(relative) {
+          const base = normalizeSlashes(relative).split("/").pop() || "";
+          return /\.[^./]+$/.test(base);
+        }
+
+        function withMdExtension(relative) {
+          const n = normalizeSlashes(relative);
+          if (!n) return n;
+          return hasFileExtension(n) ? n : `${n}.md`;
+        }
+
+        function isEscapingRelative(relative) {
+          const n = normalizeSlashes(relative);
+          if (!n) return false;
+          if (n.startsWith("/") || /^[A-Za-z]:/.test(n)) return true;
+          let depth = 0;
+          for (const part of n.split("/")) {
+            if (!part || part === ".") continue;
+            if (part === "..") {
+              depth -= 1;
+              if (depth < 0) return true;
+              continue;
+            }
+            depth += 1;
+          }
+          return false;
+        }
+
+        function relativeUnderRoot(absPath, root) {
+          if (absPath == null || root == null || root === "") return null;
+          const full = normalizeSlashes(absPath);
+          const base = normalizeSlashes(root).replace(/\/+$/, "");
+          if (!base) return null;
+          if (full === base) return null;
+          if (full.startsWith(`${base}/`)) return full.slice(base.length + 1);
+          return null;
+        }
+
+        function splitChosenPath(chosen, workspace) {
+          const full = normalizeSlashes(chosen);
+          const under = relativeUnderRoot(full, workspace);
+          if (under != null) return { root: workspace, relative: under };
+          const i = full.lastIndexOf("/");
+          if (i <= 0) return { root: workspace || "", relative: full };
+          return { root: full.slice(0, i), relative: full.slice(i + 1) };
+        }
+
+        function saveAsSpec(value) {
+          if (!value || typeof value !== "object") return null;
+          if (typeof value.preventDefault === "function") return null;
+          if (
+            value.relative != null ||
+            value.filename != null ||
+            value.path != null ||
+            value.root != null ||
+            value.contents != null
+          ) {
+            return value;
+          }
+          return null;
+        }
+
+        async function askConfirm(message) {
+          const tauri = window.__TAURI__;
+          if (tauri && tauri.dialog && typeof tauri.dialog.confirm === "function") {
+            return !!(await tauri.dialog.confirm(message));
+          }
+          if (tauri && tauri.dialog && typeof tauri.dialog.ask === "function") {
+            return !!(await tauri.dialog.ask(message));
+          }
+          if (typeof window.confirm === "function") {
+            return !!window.confirm(message);
+          }
+          return false;
+        }
+
+        async function pickSavePath() {
+          const tauri = window.__TAURI__;
+          if (!tauri) return null;
+          const options = {
+            defaultPath: workspacePath
+              ? `${String(workspacePath).replace(/[/\\]+$/, "")}/untitled.md`
+              : "untitled.md",
+            filters: [{ name: "Markdown", extensions: ["md"] }],
+          };
+          if (tauri.dialog && typeof tauri.dialog.save === "function") {
+            return tauri.dialog.save(options);
+          }
+          try {
+            const picked = await tauri.core.invoke("plugin:dialog|save", { options });
+            if (picked) return picked;
+          } catch {
+            // folder + filename fallback
+          }
+          let folder = workspacePath;
+          if (!folder) {
+            const selected = await pickFolder();
+            folder = folderPath(selected);
+          }
+          if (!folder) return null;
+          const name =
+            typeof window.prompt === "function"
+              ? window.prompt("File name", "untitled.md")
+              : "untitled.md";
+          if (!name) return null;
+          return `${String(folder).replace(/[/\\]+$/, "")}/${name}`;
+        }
+
+        async function workspaceHasFile(root, relative) {
+          const tauri = window.__TAURI__;
+          if (!tauri || !tauri.core || typeof tauri.core.invoke !== "function") {
+            return lastEntries.some((e) => e && e.relative_path === relative);
+          }
+          try {
+            const exists = await tauri.core.invoke("workspace_file_exists", {
+              path: root,
+              relative,
+            });
+            if (typeof exists === "boolean") return exists;
+          } catch {
+            // command may be absent; fall through
+          }
+          try {
+            await tauri.core.invoke("read_workspace_file", { path: root, relative });
+            return true;
+          } catch {
+            return false;
+          }
+        }
+
+        function clearPreview() {
+          if (htmlViewer) htmlViewer.hidden = true;
+          if (!previewBody) return;
+          previewBody.replaceChildren();
+          previewBody.textContent = "";
+        }
+
         async function applyFolder(path) {
           if (typeof window.lightmdCancelAutosave === "function") {
             window.lightmdCancelAutosave();
@@ -987,8 +1134,97 @@
           setDirty(false);
         }
 
+        async function newNote() {
+          // Bound dirty: start a blank session (discards). Unbound dirty: confirm first.
+          if (dirty && !currentRelative) {
+            const ok = await askConfirm("Discard unsaved changes?");
+            if (!ok) return;
+          }
+          if (typeof window.lightmdCancelAutosave === "function") {
+            window.lightmdCancelAutosave();
+          }
+          currentRelative = null;
+          if (statusPath) statusPath.textContent = "";
+          if (buffer) buffer.value = "";
+          if (window.lightmdEditor && typeof window.lightmdEditor.setDoc === "function") {
+            window.lightmdEditor.setDoc("");
+          }
+          clearPreview();
+          setDirty(false);
+          markActiveFile();
+          persistOpenFile(null);
+        }
+
+        async function saveAs(spec) {
+          const opts = saveAsSpec(spec) || {};
+          const tauri = window.__TAURI__;
+          if (!tauri || !tauri.core || typeof tauri.core.invoke !== "function") {
+            return false;
+          }
+
+          let root = opts.path ?? opts.root ?? workspacePath;
+          let relative = opts.relative ?? opts.filename;
+          if (relative == null || relative === "") {
+            const chosen = await pickSavePath();
+            if (!chosen) return false;
+            const split = splitChosenPath(chosen, root || workspacePath);
+            root = split.root;
+            relative = split.relative;
+          } else {
+            relative = normalizeSlashes(relative);
+            const under = relativeUnderRoot(relative, root);
+            if (under != null) relative = under;
+            if (relative.startsWith("/") || /^[A-Za-z]:/.test(relative)) {
+              const split = splitChosenPath(relative, root || workspacePath);
+              root = split.root;
+              relative = split.relative;
+            }
+          }
+
+          relative = withMdExtension(relative);
+          if (!relative || !root) return false;
+          if (isEscapingRelative(relative)) {
+            throw new Error("path is outside workspace root");
+          }
+
+          const contents = opts.contents != null ? String(opts.contents) : buffer.value;
+          if (await workspaceHasFile(root, relative)) {
+            const ok = await askConfirm(`Overwrite ${relative}?`);
+            if (!ok) return false;
+          }
+
+          await tauri.core.invoke("write_workspace_file", {
+            path: root,
+            relative,
+            contents,
+          });
+
+          if (root && workspacePath !== root) {
+            workspacePath = root;
+            persistOpenFolder(root);
+          }
+          currentRelative = relative;
+          if (statusPath) statusPath.textContent = currentRelative;
+          setDirty(false);
+          persistOpenFile(currentRelative);
+          if (workspacePath) {
+            try {
+              await loadWorkspace(workspacePath);
+            } catch {
+              markActiveFile();
+            }
+          } else {
+            markActiveFile();
+          }
+          return true;
+        }
+
         window.lightmdOpenFolder = applyFolder;
         window.lightmdOpenFile = applyFile;
+        window.lightmdNewNote = newNote;
+        window.lightmdSaveAs = saveAs;
+        window.newNote = newNote;
+        window.saveAs = saveAs;
 
         button.addEventListener("click", async () => {
           const selected = await pickFolder();
@@ -997,6 +1233,13 @@
           await applyFolder(path);
           persistOpenFolder(path);
         });
+
+        if (newNoteButton) {
+          newNoteButton.addEventListener("click", () => newNote());
+        }
+        if (saveAsButton) {
+          saveAsButton.addEventListener("click", () => saveAs());
+        }
 
         sortSelect.addEventListener("change", async () => {
           if (!workspacePath) return;
