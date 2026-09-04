@@ -145,8 +145,8 @@ export function handlePreviewClick(event) {
   const anchor = target.closest("a");
   if (!anchor) return;
   const href = anchor.getAttribute("href") || "";
-  if (!isHttpHref(href)) return;
   event.preventDefault();
+  if (!isHttpHref(href)) return;
   void openPreviewLink(href);
 }
 
