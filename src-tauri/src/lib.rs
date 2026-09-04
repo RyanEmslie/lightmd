@@ -1,6 +1,6 @@
 use std::fs;
 use std::io;
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 
 #[derive(Clone, Debug, serde::Serialize)]
 pub struct Entry {
@@ -82,16 +82,72 @@ fn listed_file(path: &Path) -> bool {
     )
 }
 
+fn outside_workspace() -> io::Error {
+    io::Error::new(
+        io::ErrorKind::InvalidInput,
+        "path is outside workspace root",
+    )
+}
+
 fn confined_path(root: &Path, relative: impl AsRef<Path>) -> io::Result<PathBuf> {
     let root = root.canonicalize()?;
-    let path = root.join(relative).canonicalize()?;
-    path.strip_prefix(&root).map_err(|_| {
-        io::Error::new(
-            io::ErrorKind::InvalidInput,
-            "path is outside workspace root",
-        )
-    })?;
-    Ok(path)
+    let relative = relative.as_ref();
+    if relative.is_absolute() {
+        return Err(outside_workspace());
+    }
+
+    let joined = root.join(relative);
+    if joined.exists() {
+        let path = joined.canonicalize()?;
+        path.strip_prefix(&root).map_err(|_| outside_workspace())?;
+        return Ok(path);
+    }
+
+    // Save As may write a file that does not exist yet; confine without canonicalize.
+    let mut path = root.clone();
+    for component in relative.components() {
+        match component {
+            Component::CurDir => {}
+            Component::Normal(name) => path.push(name),
+            Component::ParentDir => {
+                if path == root {
+                    return Err(outside_workspace());
+                }
+                path.pop();
+            }
+            Component::Prefix(_) | Component::RootDir => {
+                return Err(outside_workspace());
+            }
+        }
+    }
+
+    if !path.starts_with(&root) || path == root {
+        return Err(outside_workspace());
+    }
+
+    let mut missing = Vec::new();
+    let mut prefix = path;
+    while !prefix.exists() {
+        match prefix.file_name() {
+            Some(name) => {
+                missing.push(name.to_os_string());
+                prefix.pop();
+            }
+            None => break,
+        }
+        if !prefix.starts_with(&root) {
+            return Err(outside_workspace());
+        }
+    }
+    let mut prefix = prefix.canonicalize()?;
+    prefix.strip_prefix(&root).map_err(|_| outside_workspace())?;
+    for name in missing.into_iter().rev() {
+        prefix.push(name);
+    }
+    if !prefix.starts_with(&root) {
+        return Err(outside_workspace());
+    }
+    Ok(prefix)
 }
 
 pub fn read_file(root: &Path, relative: impl AsRef<Path>) -> io::Result<String> {
@@ -107,7 +163,13 @@ pub fn write_file(
     relative: impl AsRef<Path>,
     contents: impl AsRef<[u8]>,
 ) -> io::Result<()> {
-    fs::write(confined_path(root, relative)?, contents)
+    let path = confined_path(root, relative)?;
+    if let Some(parent) = path.parent() {
+        if !parent.exists() {
+            fs::create_dir_all(parent)?;
+        }
+    }
+    fs::write(path, contents)
 }
 
 #[tauri::command]
@@ -373,9 +435,34 @@ mod tests {
     }
 
     #[test]
+    fn write_file_creates_new_file_under_workspace() {
+        let root = workspace_fixture();
+        let relative = "save-as-new.md";
+        let path = root.join(relative);
+        struct RemoveOnDrop(PathBuf);
+        impl Drop for RemoveOnDrop {
+            fn drop(&mut self) {
+                let _ = std::fs::remove_file(&self.0);
+            }
+        }
+        let _cleanup = RemoveOnDrop(path.clone());
+        let _ = std::fs::remove_file(&path);
+        write_file(&root, relative, "created by save as\n")
+            .expect("write_file should create a new file for Save As");
+        let body = read_file(&root, relative).expect("new file should be readable");
+        assert_eq!(
+            body.replace('\r', ""),
+            "created by save as\n",
+            "write_file must persist a newly created workspace file"
+        );
+    }
+
+    #[test]
     fn does_not_expose_create_rename_or_delete() {
         let src = include_str!("lib.rs");
-        for op in ["create", "rename", "delete"] {
+        // Save As creates files through write_file / write_workspace_file.
+        // Dedicated rename/delete commands stay forbidden.
+        for op in ["rename", "delete"] {
             let needle = format!("fn {op}");
             assert!(
                 !src.lines().any(|line| {
@@ -388,6 +475,10 @@ mod tests {
                 "must not expose {op}"
             );
         }
+        assert!(
+            has_fn(src, "write_file") || has_fn(src, "write_workspace_file"),
+            "create-via-write must remain available for Save As"
+        );
     }
 
     fn listed_ab(entries: &[super::Entry]) -> Vec<String> {
