@@ -1,6 +1,8 @@
 const PANE_IDS = ["explorer", "editor", "preview"];
 const STORAGE_KEY = "lightmd.layout";
 const MIN_PANE = 160;
+const SIDEBAR_TOGGLE_IDS = ["sidebar-toggle", "nav-toggle", "toggle-sidebar", "toggle-nav"];
+const SIDEBAR_NAME_RE = /\b(?:toggle\s+)?sidebar\b|\btoggle\s+nav\b/i;
 
 export const layout = {
   order: ["explorer", "editor", "preview"],
@@ -29,6 +31,44 @@ function storage() {
 
 function isPaneId(id) {
   return PANE_IDS.includes(id);
+}
+
+function normalizeOrder(order) {
+  const incoming = Array.isArray(order) ? order.map(String).filter(isPaneId) : [];
+  const source = incoming.length ? incoming : layout.order;
+  const seen = new Set();
+  const content = [];
+  for (const id of source) {
+    if (!isPaneId(id) || id === "explorer" || seen.has(id)) continue;
+    seen.add(id);
+    content.push(id);
+  }
+  for (const id of PANE_IDS) {
+    if (id === "explorer" || seen.has(id)) continue;
+    content.push(id);
+  }
+  return ["explorer", ...content];
+}
+
+function contentOrder(order = layout.order) {
+  return normalizeOrder(order).filter((id) => id !== "explorer");
+}
+
+function elId(el) {
+  return String(el?.id || (typeof el?.getAttribute === "function" ? el.getAttribute("id") : "") || "");
+}
+
+function isSidebarToggleEl(el) {
+  if (!el) return false;
+  if (SIDEBAR_TOGGLE_IDS.includes(elId(el))) return true;
+  const names = [
+    typeof el.getAttribute === "function" ? el.getAttribute("aria-label") : "",
+    typeof el.getAttribute === "function" ? el.getAttribute("title") : "",
+    el.title,
+  ]
+    .filter(Boolean)
+    .join(" ");
+  return SIDEBAR_NAME_RE.test(names);
 }
 
 function windowSize() {
@@ -396,6 +436,7 @@ function applyPane(el, open) {
 
 function applyLayoutToDom() {
   const d = doc();
+  layout.order = normalizeOrder(layout.order);
   if (!d || typeof d.getElementById !== "function") return;
   const shell = d.getElementById("shell");
   const cols = [];
@@ -417,6 +458,19 @@ function applyLayoutToDom() {
   placeSplitters();
 }
 
+function syncSidebarToggle() {
+  const d = doc();
+  if (!d || typeof d.getElementById !== "function") return;
+  const open = layout.open.explorer !== false;
+  const pressed = open ? "true" : "false";
+  for (const id of SIDEBAR_TOGGLE_IDS) {
+    const btn = d.getElementById(id);
+    if (!btn || typeof btn.setAttribute !== "function") continue;
+    btn.setAttribute("aria-pressed", pressed);
+    btn.setAttribute("aria-expanded", pressed);
+  }
+}
+
 function syncLayoutControls() {
   const d = doc();
   if (!d || typeof d.getElementById !== "function") return;
@@ -430,7 +484,7 @@ function syncLayoutControls() {
   }
   const orderSelect = d.getElementById("pane-order");
   if (orderSelect) {
-    orderSelect.value = layout.order.join(",");
+    orderSelect.value = contentOrder().join(",");
   }
   const toggles =
     typeof d.querySelectorAll === "function"
@@ -440,15 +494,24 @@ function syncLayoutControls() {
     const id = btn.getAttribute?.("data-pane-toggle");
     if (!isPaneId(id)) continue;
     const open = layout.open[id] !== false;
+    const pressed = open ? "true" : "false";
+    if (isSidebarToggleEl(btn)) {
+      if (typeof btn.setAttribute === "function") {
+        btn.setAttribute("aria-pressed", pressed);
+        btn.setAttribute("aria-expanded", pressed);
+      }
+      continue;
+    }
     const label = open ? "Hide" : "Show";
     if (typeof btn.setAttribute === "function") {
-      btn.setAttribute("aria-pressed", open ? "true" : "false");
+      btn.setAttribute("aria-pressed", pressed);
       if (btn.getAttribute?.("aria-label") != null) {
         btn.setAttribute("aria-label", label);
       }
     }
     btn.textContent = label;
   }
+  syncSidebarToggle();
 }
 
 function applyWindowSize() {
@@ -483,6 +546,7 @@ export function persistLayout() {
   }
   captureWidths();
   clampOpenPaneWidths();
+  layout.order = normalizeOrder(layout.order);
   const size = windowSize();
   layout.window.width = size.width;
   layout.window.height = size.height;
@@ -530,7 +594,9 @@ export function restoreLayout() {
   }
   if (Array.isArray(parsed.order)) {
     const next = parsed.order.map(String).filter(isPaneId);
-    if (next.length) layout.order = next;
+    if (next.length) layout.order = normalizeOrder(next);
+  } else {
+    layout.order = normalizeOrder(layout.order);
   }
   let sawOpen = false;
   if (parsed.open && typeof parsed.open === "object" && !Array.isArray(parsed.open)) {
@@ -613,7 +679,7 @@ export function setLayout(nameOrState) {
     }
     if (Array.isArray(nameOrState.order)) {
       const next = nameOrState.order.map(String).filter(isPaneId);
-      if (next.length) layout.order = next;
+      if (next.length) layout.order = normalizeOrder(next);
     }
   } else {
     return;
@@ -625,7 +691,9 @@ export function setLayout(nameOrState) {
 export function reorderPanes(order) {
   if (Array.isArray(order)) {
     const next = order.map(String).filter(isPaneId);
-    if (next.length) layout.order = next;
+    if (next.length) layout.order = normalizeOrder(next);
+  } else {
+    layout.order = normalizeOrder(layout.order);
   }
   applyLayoutToDom();
   persistLayout();
@@ -647,7 +715,7 @@ function bindLayoutControls() {
   const orderSelect = d.getElementById("pane-order");
   if (orderSelect && typeof orderSelect.addEventListener === "function") {
     orderSelect.addEventListener("change", () => {
-      reorderPanes(orderSelect.value.split(",").map((s) => s.trim()));
+      reorderPanes(String(orderSelect.value || "").split(",").map((s) => s.trim()));
     });
   }
   const toggles =
@@ -656,12 +724,14 @@ function bindLayoutControls() {
       : [];
   for (const btn of toggles) {
     if (typeof btn.addEventListener !== "function") continue;
+    if (isSidebarToggleEl(btn)) continue;
     btn.addEventListener("click", () => {
       const id = btn.getAttribute?.("data-pane-toggle");
       if (!isPaneId(id)) return;
       collapsePane(id, layout.open[id] !== false);
     });
   }
+  bindSidebarToggle();
   if (typeof globalThis.addEventListener === "function") {
     globalThis.addEventListener("resize", () => {
       persistLayout();
@@ -669,6 +739,20 @@ function bindLayoutControls() {
   }
   placeSplitters();
   bindPointerTracking();
+}
+
+function bindSidebarToggle() {
+  const d = doc();
+  if (!d || typeof d.getElementById !== "function") return;
+  const seen = new Set();
+  for (const id of SIDEBAR_TOGGLE_IDS) {
+    const btn = d.getElementById(id);
+    if (!btn || seen.has(btn) || typeof btn.addEventListener !== "function") continue;
+    seen.add(btn);
+    btn.addEventListener("click", () => {
+      collapsePane("explorer", layout.open.explorer !== false);
+    });
+  }
 }
 
 try {

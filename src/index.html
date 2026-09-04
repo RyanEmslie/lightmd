@@ -156,6 +156,25 @@
         border-bottom: 1px solid var(--border);
       }
 
+      #sidebar-toggle {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 28px;
+        height: 28px;
+        padding: 0;
+        flex: none;
+        color: var(--fg);
+        background: var(--bg);
+        border: 1px solid var(--border);
+      }
+
+      #sidebar-toggle svg {
+        display: block;
+        width: 16px;
+        height: 16px;
+      }
+
       #explorer-sort,
       #editor-theme,
       #preview-theme,
@@ -516,6 +535,20 @@
   </head>
   <body>
     <div id="layout-bar">
+      <button
+        type="button"
+        id="sidebar-toggle"
+        data-pane-toggle="explorer"
+        aria-label="Toggle sidebar"
+        title="Toggle sidebar"
+        aria-pressed="true"
+        aria-expanded="true"
+      >
+        <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" focusable="false">
+          <rect x="1.5" y="2.5" width="13" height="11" rx="2" fill="none" stroke="currentColor" stroke-width="1.25" />
+          <rect x="1.5" y="2.5" width="4.5" height="11" rx="2" fill="currentColor" />
+        </svg>
+      </button>
       <label for="pane-layout">Layout</label>
       <select id="pane-layout">
         <option value="three-pane" selected>Three panes</option>
@@ -523,17 +556,12 @@
         <option value="editor-only">Editor only</option>
         <option value="reader-only">Reader only</option>
       </select>
-      <button type="button" data-pane-toggle="explorer" aria-pressed="true">Hide</button>
       <button type="button" data-pane-toggle="editor" aria-pressed="true">Hide</button>
       <button type="button" data-pane-toggle="preview" aria-pressed="true">Hide</button>
       <label for="pane-order">Order</label>
       <select id="pane-order">
-        <option value="explorer,editor,preview" selected>Explorer, editor, preview</option>
-        <option value="explorer,preview,editor">Explorer, preview, editor</option>
-        <option value="editor,explorer,preview">Editor, explorer, preview</option>
-        <option value="editor,preview,explorer">Editor, preview, explorer</option>
-        <option value="preview,explorer,editor">Preview, explorer, editor</option>
-        <option value="preview,editor,explorer">Preview, editor, explorer</option>
+        <option value="editor,preview" selected>Editor, preview</option>
+        <option value="preview,editor">Preview, editor</option>
       </select>
       <button type="button" id="settings-open">Settings</button>
     </div>
@@ -719,7 +747,6 @@
         <button type="button" id="open-folder">Open Folder</button>
         <div id="explorer-toolbar">
           <button type="button" id="new-note">New Note</button>
-          <button type="button" data-pane-toggle="explorer" aria-pressed="true">Hide</button>
           <label for="explorer-sort">Sort</label>
           <select id="explorer-sort">
             <option value="name">Name</option>

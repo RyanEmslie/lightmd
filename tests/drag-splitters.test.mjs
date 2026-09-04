@@ -862,7 +862,7 @@ test("with remember off, drag updates live widths but restore does not reapply s
 test("hidden panes are skipped; splitters follow visible adjacent panes across at least two orders", () => {
   const orders = [
     ["explorer", "editor", "preview"],
-    ["preview", "editor", "explorer"],
+    ["explorer", "preview", "editor"],
   ];
   for (const order of orders) {
     reset({ order });
