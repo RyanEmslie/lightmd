@@ -250,24 +250,42 @@ function hasEditorHighlight(src) {
   return false;
 }
 
+function extractFunction(src, name) {
+  const re = new RegExp(
+    String.raw`(?:export\s+)?(?:async\s+)?function\s+${name}\s*\(`,
+  );
+  const m = re.exec(src);
+  if (!m) return "";
+  const brace = src.indexOf("{", m.index);
+  if (brace < 0) return "";
+  let depth = 0;
+  for (let i = brace; i < src.length; i++) {
+    const ch = src[i];
+    if (ch === "{") depth++;
+    else if (ch === "}") {
+      depth--;
+      if (depth === 0) return src.slice(m.index, i + 1);
+    }
+  }
+  return src.slice(m.index, m.index + 800);
+}
+
 function findSearchesWorkspace(src) {
+  // Find in file (#find / #find-query / findInBuffer / runFind) stays buffer-local.
+  // Workspace search is a separate API (findInWorkspace).
+  const bodies = ["findInBuffer", "runFind", "applyFind"]
+    .map((name) => extractFunction(src, name))
+    .join("\n");
   if (
-    /invoke\(\s*["'](?:search_workspace|search_files|find_in_files|grep_workspace)["']/.test(
-      src,
+    /invoke\(\s*["'](?:search_workspace|search_files|find_in_files|grep_workspace|list_workspace)["']/.test(
+      bodies,
     )
   ) {
     return true;
   }
   if (
     /\b(?:searchWorkspace|findInWorkspace|findInFiles|workspaceSearch|search_workspace)\b/.test(
-      src,
-    )
-  ) {
-    return true;
-  }
-  if (
-    /function\s+(?:find|search)\w*\s*\([^)]*\)[\s\S]{0,800}?invoke\(\s*["']list_workspace["']/.test(
-      src,
+      bodies,
     )
   ) {
     return true;
