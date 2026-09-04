@@ -104,10 +104,14 @@ function mergePartial(partial) {
   if (!partial || typeof partial !== "object") return;
   if (typeof partial.restore === "boolean") session.restore = partial.restore;
   if ("defaultFolder" in partial) session.defaultFolder = partial.defaultFolder;
+  const prevFolder = session.lastFolder;
   if ("lastFolder" in partial) session.lastFolder = partial.lastFolder;
   else if ("folder" in partial) session.lastFolder = partial.folder;
   if ("lastFile" in partial) session.lastFile = partial.lastFile;
   else if ("file" in partial) session.lastFile = partial.file;
+  else if (("lastFolder" in partial || "folder" in partial) && session.lastFolder !== prevFolder) {
+    session.lastFile = null;
+  }
   if ("editorTheme" in partial) session.editorTheme = partial.editorTheme;
   if ("previewTheme" in partial) session.previewTheme = partial.previewTheme;
   const htmlJs = firstOf(htmlJsValue(partial.htmlJs), asBool(partial.htmlJsEnabled));
@@ -126,9 +130,14 @@ function writeSession() {
 
 export function persistSession(partial, fileArg) {
   if (typeof partial === "string") {
+    const prevFolder = session.lastFolder;
     session.lastFolder = partial;
-    if (typeof fileArg === "string" || fileArg == null) {
-      if (arguments.length > 1) session.lastFile = fileArg;
+    if (arguments.length > 1) {
+      if (typeof fileArg === "string" || fileArg == null) {
+        session.lastFile = fileArg;
+      }
+    } else if (partial !== prevFolder) {
+      session.lastFile = null;
     }
   } else if (partial && typeof partial === "object") {
     mergePartial(partial);
@@ -197,29 +206,32 @@ async function applyThemeHelpers() {
 }
 
 async function restoreWorkspace() {
-  if (session.lastFolder && typeof globalThis.lightmdOpenFolder === "function") {
+  const folder = session.lastFolder;
+  const file = session.lastFile;
+  if (folder && typeof globalThis.lightmdOpenFolder === "function") {
     try {
-      await globalThis.lightmdOpenFolder(session.lastFolder);
+      await globalThis.lightmdOpenFolder(folder);
     } catch {
       // folder may be gone
     }
   }
-  if (!session.lastFile) return;
+  if (!file) return;
   const invoke = tauriInvoke();
   if (!invoke) return;
-  if (!session.lastFolder) {
+  if (!folder) {
     session.lastFile = null;
     return;
   }
   try {
     const body = await invoke("read_workspace_file", {
-      path: session.lastFolder,
-      relative: session.lastFile,
+      path: folder,
+      relative: file,
     });
     applyFileBody(body);
     if (typeof globalThis.lightmdOpenFile === "function") {
-      await globalThis.lightmdOpenFile(session.lastFile);
+      await globalThis.lightmdOpenFile(file);
     }
+    persistSession({ lastFile: file, file: file });
   } catch {
     session.lastFile = null;
   }
