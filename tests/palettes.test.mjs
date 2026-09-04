@@ -635,10 +635,14 @@ function classifyAccentContexts(src) {
       /:focus(?:-visible|-within)?\b|\bfocus-visible\b|\boutline(?:-color)?\b/i.test(
         ctx,
       );
+    const isTab =
+      /#editor-tabs\b|\[role=["']tab(?:list)?["']\]|\.editor-tab\b|\btablist\b|\bactive tab\b/i.test(
+        ctx,
+      );
     if (isDirty) uses.dirty = true;
     if (isSelection) uses.selection = true;
     if (isFocus) uses.focus = true;
-    if (!isDirty && !isSelection && !isFocus) uses.decoration = true;
+    if (!isDirty && !isSelection && !isFocus && !isTab) uses.decoration = true;
   }
   return uses;
 }
@@ -774,7 +778,7 @@ test("CSS variables plus CodeMirror theme maps for each palette", async () => {
   }
 });
 
-test("--accent is for selection, focus, and dirty only", async () => {
+test("--accent is for selection, focus, dirty, and active editor tab", async () => {
   const api = await loadApi();
   const uses = classifyAccentContexts(api.src);
   assert.ok(uses.selection, "missing --accent for selection");
@@ -783,6 +787,6 @@ test("--accent is for selection, focus, and dirty only", async () => {
   assert.equal(
     uses.decoration,
     false,
-    "--accent is for selection, focus, and dirty only (not general chrome decoration)",
+    "--accent is for selection, focus, dirty, and Cursor-style active tab (not general chrome decoration)",
   );
 });

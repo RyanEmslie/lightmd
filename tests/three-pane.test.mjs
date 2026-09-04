@@ -65,10 +65,26 @@ test("1px splitters using --border", () => {
   assert.match(html, /var\(--border\)/, "splitters must use --border");
 });
 
-test("no editor tabs", () => {
+test("Cursor-style editor tab strip is allowed in #editor", () => {
   const html = loadHtml();
-  assert.equal(/\brole=["']tab(?:list)?["']/.test(html), false, "no editor tabs");
-  assert.equal(/\bid=["']tabs["']/.test(html), false, "no editor tabs");
+  assert.equal(/\bid=["']tabs["']/.test(html), false, "use #editor-tabs, not generic #tabs");
+  const editor = html.match(
+    /<(main|div|section|article)\b[^>]*\bid=["']editor["'][^>]*>[\s\S]*?<\/\1>/i,
+  );
+  assert.ok(editor, "missing #editor");
+  assert.match(
+    editor[0],
+    /\bid=["']editor-tabs["']|\brole=["']tablist["']/,
+    "Cursor-style #editor-tabs (role=tablist) lives in #editor",
+  );
+  const explorer = html.match(/<aside\b[^>]*\bid=["']explorer["'][^>]*>[\s\S]*?<\/aside>/i);
+  if (explorer) {
+    assert.equal(
+      /\brole=["']tablist["']/.test(explorer[0]),
+      false,
+      "tab strip must not live in #explorer",
+    );
+  }
 });
 
 test("native title bar (decorations not false)", () => {

@@ -33,12 +33,11 @@ test("#editor has a textarea so selecting a file can load it (id editor-buffer o
   );
 });
 
-test("no tabs and no second textarea", () => {
+test("single editor textarea; Cursor-style tabs allowed", () => {
   const html = loadHtml();
   const editor = editorHtml(html);
 
-  assert.equal(/\brole=["']tab(?:list)?["']/.test(html), false, "no editor tabs");
-  assert.equal(/\bid=["']tabs["']/.test(html), false, "no editor tabs");
+  assert.equal(/\bid=["']tabs["']/.test(html), false, "use #editor-tabs, not generic #tabs");
 
   const textareas = editor.match(/<textarea\b/gi) ?? [];
   assert.ok(textareas.length > 0, "missing textarea in #editor");

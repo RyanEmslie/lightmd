@@ -281,6 +281,70 @@
         color: var(--fg);
       }
 
+      #editor-tabs {
+        display: flex;
+        flex: none;
+        flex-wrap: nowrap;
+        align-items: stretch;
+        height: 24px;
+        margin: -8px -12px 8px;
+        overflow-x: auto;
+        overflow-y: hidden;
+        background: var(--bg);
+        color: var(--fg-muted);
+        border-bottom: 1px solid var(--border);
+      }
+
+      #editor-tabs [role="tab"] {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        height: 24px;
+        padding: 0 8px;
+        box-sizing: border-box;
+        flex: none;
+        max-width: 16em;
+        border: 0;
+        border-top: 2px solid transparent;
+        border-radius: 0;
+        background: var(--bg);
+        color: var(--fg-muted);
+        font: inherit;
+        cursor: pointer;
+      }
+
+      #editor-tabs [role="tab"][aria-selected="true"] {
+        background: var(--bg-elevated);
+        color: var(--fg);
+        border-top: 2px solid var(--accent);
+      }
+
+      #editor-tabs [role="tab"] .tab-name {
+        overflow: hidden;
+        white-space: nowrap;
+        text-overflow: ellipsis;
+      }
+
+      #editor-tabs [role="tab"] .tab-close {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 16px;
+        height: 16px;
+        flex: none;
+        border-radius: 0;
+        color: var(--fg-muted);
+        font: inherit;
+        line-height: 1;
+      }
+
+      #editor-tabs [role="tab"] svg {
+        display: block;
+        width: 12px;
+        height: 12px;
+        flex: none;
+      }
+
       #editor-chrome,
       #preview-chrome {
         display: flex;
@@ -839,6 +903,7 @@
         <div class="splitter" role="separator" aria-orientation="vertical"></div>
       </aside>
       <main id="editor" class="pane" tabindex="0">
+        <div id="editor-tabs" role="tablist" aria-label="Open files"></div>
         <textarea id="editor-buffer"></textarea>
         <div id="editor-chrome">
           <button type="button" data-pane-toggle="editor" aria-pressed="true">Hide</button>
@@ -913,10 +978,15 @@
         let lastEntries = [];
         let currentRelative = null;
         let dirty = false;
+        const tabStrip = document.getElementById("editor-tabs");
+        let openTabs = [];
+        let activeRelative = null;
 
         function setDirty(value) {
           dirty = value;
           if (dirtyDot) dirtyDot.hidden = !dirty;
+          const tab = findTab(activeRelative);
+          if (tab) tab.dirty = value;
           if (!value && typeof window.lightmdCancelAutosave === "function") {
             window.lightmdCancelAutosave();
           }
@@ -1191,10 +1261,193 @@
           previewBody.textContent = "";
         }
 
+        function tabKey(relative) {
+          return relative == null ? "" : String(relative);
+        }
+
+        function isUntitledKey(key) {
+          return key == null || key === "";
+        }
+
+        function findTab(key) {
+          const k = tabKey(key);
+          return openTabs.find((tab) => tabKey(tab.relative) === k);
+        }
+
+        function fileNameOf(relative) {
+          if (isUntitledKey(relative)) return "untitled";
+          const n = normalizeSlashes(relative);
+          const i = n.lastIndexOf("/");
+          return i >= 0 ? n.slice(i + 1) : n;
+        }
+
+        function fileKindOf(relative) {
+          const name = fileNameOf(relative);
+          const i = name.lastIndexOf(".");
+          const ext = i > 0 ? name.slice(i + 1).toLowerCase() : "";
+          if (ext === "html" || ext === "htm") return "html";
+          return "md";
+        }
+
+        function createSvg(tag) {
+          if (typeof document.createElementNS === "function") {
+            return document.createElementNS("http://www.w3.org/2000/svg", tag);
+          }
+          return document.createElement(tag);
+        }
+
+        function fileTypeIcon(relative) {
+          const kind = fileKindOf(relative);
+          const svg = createSvg("svg");
+          svg.setAttribute("viewBox", "0 0 16 16");
+          svg.setAttribute("width", "12");
+          svg.setAttribute("height", "12");
+          svg.setAttribute("aria-hidden", "true");
+          svg.setAttribute("focusable", "false");
+          svg.dataset.ext = kind;
+          svg.dataset.type = kind;
+          const path = createSvg("path");
+          path.setAttribute("fill", "currentColor");
+          path.setAttribute(
+            "d",
+            kind === "html" ? "M3 2h7l3 3v9H3zm7 0v3h3" : "M4 2h6l3 3v9H4z",
+          );
+          svg.appendChild(path);
+          return svg;
+        }
+
+        function loadIntoEditor(body) {
+          if (typeof window.lightmdCancelAutosave === "function") {
+            window.lightmdCancelAutosave();
+          }
+          const text = body == null ? "" : String(body);
+          if (buffer) buffer.value = text;
+          if (window.lightmdEditor && typeof window.lightmdEditor.setDoc === "function") {
+            window.lightmdEditor.setDoc(text);
+          }
+        }
+
+        function showActivePath() {
+          if (!statusPath) return;
+          statusPath.textContent = currentRelative || "";
+        }
+
+        function stashActive() {
+          const tab = findTab(activeRelative);
+          if (!tab) return;
+          tab.contents = buffer ? buffer.value : tab.contents;
+          tab.dirty = dirty;
+        }
+
+        function renderTabs() {
+          if (!tabStrip) return;
+          tabStrip.replaceChildren();
+          for (const tab of openTabs) {
+            tabStrip.appendChild(makeTabEl(tab));
+          }
+        }
+
+        function makeTabEl(tab) {
+          const key = tabKey(tab.relative);
+          const name = fileNameOf(key);
+          const el = document.createElement("button");
+          el.type = "button";
+          el.setAttribute("role", "tab");
+          el.setAttribute("aria-selected", tabKey(activeRelative) === key ? "true" : "false");
+          el.dataset.relative = key;
+          el.dataset.path = key;
+          el.title = key || name;
+          el.appendChild(fileTypeIcon(key));
+          const label = document.createElement("span");
+          label.className = "tab-name";
+          label.textContent = name;
+          el.appendChild(label);
+          const close = document.createElement("span");
+          close.className = "tab-close";
+          close.setAttribute("role", "button");
+          close.setAttribute("aria-label", "Close");
+          close.title = "Close";
+          close.textContent = "×";
+          el.appendChild(close);
+          return el;
+        }
+
+        function activateTab(relative) {
+          const tab = findTab(relative);
+          if (!tab) return;
+          const key = tabKey(tab.relative);
+          if (tabKey(activeRelative) === key) {
+            currentRelative = isUntitledKey(key) ? null : tab.relative;
+            showActivePath();
+            markActiveFile();
+            renderTabs();
+            return;
+          }
+          stashActive();
+          activeRelative = key;
+          currentRelative = isUntitledKey(key) ? null : tab.relative;
+          loadIntoEditor(tab.contents ?? "");
+          setDirty(!!tab.dirty);
+          showActivePath();
+          markActiveFile();
+          renderTabs();
+          persistOpenFile(currentRelative);
+        }
+
+        function closeTab(relative) {
+          const key = tabKey(relative);
+          const i = openTabs.findIndex((tab) => tabKey(tab.relative) === key);
+          if (i < 0) return;
+          const wasActive = tabKey(activeRelative) === key;
+          openTabs.splice(i, 1);
+          if (!wasActive) {
+            renderTabs();
+            return;
+          }
+          if (openTabs.length === 0) {
+            activeRelative = null;
+            currentRelative = null;
+            loadIntoEditor("");
+            setDirty(false);
+            showActivePath();
+            markActiveFile();
+            renderTabs();
+            persistOpenFile(null);
+            clearPreview();
+            return;
+          }
+          const next = openTabs[Math.min(i, openTabs.length - 1)];
+          activeRelative = null;
+          activateTab(next.relative);
+        }
+
+        function bindActiveTab(relative, contents) {
+          const prev = findTab(activeRelative);
+          const key = tabKey(relative);
+          const dup = openTabs.find((tab) => tab !== prev && tabKey(tab.relative) === key);
+          if (dup) {
+            if (prev) openTabs = openTabs.filter((tab) => tab !== prev);
+            dup.contents = contents;
+            dup.dirty = false;
+            activeRelative = dup.relative;
+          } else if (prev) {
+            prev.relative = key;
+            prev.contents = contents;
+            prev.dirty = false;
+            activeRelative = key;
+          } else {
+            openTabs.push({ relative: key, dirty: false, contents });
+            activeRelative = key;
+          }
+          renderTabs();
+        }
+
         async function applyFolder(path) {
           if (typeof window.lightmdCancelAutosave === "function") {
             window.lightmdCancelAutosave();
           }
+          openTabs = [];
+          activeRelative = null;
           currentRelative = null;
           if (statusPath) statusPath.textContent = "";
           if (buffer) buffer.value = "";
@@ -1204,11 +1457,16 @@
           setDirty(false);
           workspacePath = path;
           persistOpenFolder(path);
+          renderTabs();
           await loadWorkspace(path);
         }
 
         async function applyFile(relative) {
           if (!workspacePath) return;
+          if (findTab(relative)) {
+            activateTab(relative);
+            return;
+          }
           if (typeof window.lightmdCancelAutosave === "function") {
             window.lightmdCancelAutosave();
           }
@@ -1216,14 +1474,15 @@
             path: workspacePath,
             relative,
           });
+          stashActive();
+          openTabs.push({ relative, dirty: false, contents: body });
+          activeRelative = relative;
           currentRelative = relative;
           if (statusPath) statusPath.textContent = currentRelative;
           markActiveFile();
-          buffer.value = body;
-          if (window.lightmdEditor) {
-            window.lightmdEditor.setDoc(body);
-          }
+          loadIntoEditor(body);
           setDirty(false);
+          renderTabs();
         }
 
         async function newNote() {
@@ -1232,18 +1491,26 @@
             const ok = await askConfirm("Discard unsaved changes?");
             if (!ok) return;
           }
+          stashActive();
+          let tab = findTab("");
+          if (!tab) {
+            tab = { relative: "", dirty: false, contents: "" };
+            openTabs.push(tab);
+          } else {
+            tab.contents = "";
+            tab.dirty = false;
+          }
           if (typeof window.lightmdCancelAutosave === "function") {
             window.lightmdCancelAutosave();
           }
+          activeRelative = "";
           currentRelative = null;
           if (statusPath) statusPath.textContent = "";
-          if (buffer) buffer.value = "";
-          if (window.lightmdEditor && typeof window.lightmdEditor.setDoc === "function") {
-            window.lightmdEditor.setDoc("");
-          }
+          loadIntoEditor("");
           clearPreview();
           setDirty(false);
           markActiveFile();
+          renderTabs();
           persistOpenFile(null);
         }
 
@@ -1298,6 +1565,7 @@
           currentRelative = relative;
           if (statusPath) statusPath.textContent = currentRelative;
           setDirty(false);
+          bindActiveTab(relative, contents);
           persistOpenFile(currentRelative);
           if (workspacePath) {
             try {
@@ -1332,6 +1600,28 @@
         if (saveAsButton) {
           saveAsButton.addEventListener("click", () => saveAs());
         }
+        if (tabStrip) {
+          tabStrip.addEventListener("click", (event) => {
+            const target = event.target;
+            if (!target || typeof target.closest !== "function") return;
+            const close = target.closest(".tab-close");
+            const tab = target.closest('[role="tab"]');
+            if (!tab || (typeof tabStrip.contains === "function" && !tabStrip.contains(tab))) {
+              return;
+            }
+            const rel =
+              tab.dataset && tab.dataset.relative != null
+                ? tab.dataset.relative
+                : tab.getAttribute("data-relative") || "";
+            if (close) {
+              if (typeof event.preventDefault === "function") event.preventDefault();
+              if (typeof event.stopPropagation === "function") event.stopPropagation();
+              closeTab(rel);
+              return;
+            }
+            activateTab(rel);
+          });
+        }
 
         sortSelect.addEventListener("change", async () => {
           if (!workspacePath) return;
@@ -1362,6 +1652,8 @@
             contents: buffer.value,
           });
           setDirty(false);
+          const tab = findTab(currentRelative);
+          if (tab) tab.contents = buffer.value;
         });
 
         buffer.addEventListener("input", () => {

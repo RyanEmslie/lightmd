@@ -128,7 +128,7 @@ function bodiesOf(rules) {
 }
 
 function isChromeSelector(selector) {
-  return /(?:^|,)\s*(?:html|body|:root|#shell|#editor-chrome|#preview-chrome|#html-js-chrome|#status-strip|#explorer-toolbar)\b/i.test(
+  return /(?:^|,)\s*(?:html|body|:root|#shell|#editor-chrome|#editor-tabs|#preview-chrome|#html-js-chrome|#status-strip|#explorer-toolbar)\b/i.test(
     selector,
   );
 }
@@ -369,6 +369,8 @@ function hasShadow(src) {
     if (/^(?:inset\s+)?(?:0(?:px)?\s+){1,3}(?:0(?:px)?)(?:\s+\S+)?$/i.test(value)) {
       continue;
     }
+    // Cursor-style editor tabs may use an inset top accent with --accent.
+    if (/inset/i.test(value) && /var\(\s*--accent/i.test(value)) continue;
     return true;
   }
   return false;
