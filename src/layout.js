@@ -115,6 +115,7 @@ function syncLayoutControls() {
     const { explorer, editor, preview } = layout.open;
     if (!explorer && editor && !preview) select.value = "editor-only";
     else if (!explorer && !editor && preview) select.value = "reader-only";
+    else if (!explorer && editor && preview) select.value = "editor-preview";
     else select.value = "three-pane";
   }
   const orderSelect = d.getElementById("pane-order");
@@ -272,6 +273,10 @@ export function setLayout(nameOrState) {
   } else if (nameOrState === "reader-only" || nameOrState === "readerOnly") {
     layout.open.explorer = false;
     layout.open.editor = false;
+    layout.open.preview = true;
+  } else if (nameOrState === "editor-preview" || nameOrState === "two-pane") {
+    layout.open.explorer = false;
+    layout.open.editor = true;
     layout.open.preview = true;
   } else if (nameOrState === "three-pane" || nameOrState === "default") {
     layout.open.explorer = true;
