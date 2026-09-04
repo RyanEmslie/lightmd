@@ -803,7 +803,12 @@
 
         function persistOpenFolder(path) {
           if (typeof window.lightmdPersistSession === "function") {
-            window.lightmdPersistSession({ lastFolder: path, folder: path });
+            window.lightmdPersistSession({
+              lastFolder: path,
+              folder: path,
+              lastFile: null,
+              file: null,
+            });
           }
         }
 
@@ -814,7 +819,18 @@
         }
 
         async function applyFolder(path) {
+          if (typeof window.lightmdCancelAutosave === "function") {
+            window.lightmdCancelAutosave();
+          }
+          currentRelative = null;
+          if (statusPath) statusPath.textContent = "";
+          if (buffer) buffer.value = "";
+          if (window.lightmdEditor && typeof window.lightmdEditor.setDoc === "function") {
+            window.lightmdEditor.setDoc("");
+          }
+          setDirty(false);
           workspacePath = path;
+          persistOpenFolder(path);
           await loadWorkspace(path);
         }
 
