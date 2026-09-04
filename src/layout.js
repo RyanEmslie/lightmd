@@ -129,9 +129,14 @@ function syncLayoutControls() {
     const id = btn.getAttribute?.("data-pane-toggle");
     if (!isPaneId(id)) continue;
     const open = layout.open[id] !== false;
+    const label = open ? "Hide" : "Show";
     if (typeof btn.setAttribute === "function") {
       btn.setAttribute("aria-pressed", open ? "true" : "false");
+      if (btn.getAttribute?.("aria-label") != null) {
+        btn.setAttribute("aria-label", label);
+      }
     }
+    btn.textContent = label;
   }
 }
 
