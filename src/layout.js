@@ -44,6 +44,19 @@ function windowSize() {
   return { width, height };
 }
 
+function clampOpenWidth(n, fallback = 240) {
+  const w = Number(n);
+  const base = Number.isFinite(w) && w > 0 ? w : fallback;
+  return Math.max(MIN_PANE, base);
+}
+
+function clampOpenPaneWidths() {
+  for (const id of PANE_IDS) {
+    if (layout.open[id] === false) continue;
+    layout.widths[id] = clampOpenWidth(layout.widths[id], layout.widths[id] || 240);
+  }
+}
+
 function captureWidths() {
   const d = doc();
   if (!d || typeof d.getElementById !== "function") return;
@@ -52,17 +65,18 @@ function captureWidths() {
     const el = d.getElementById(id);
     const width = el?.getBoundingClientRect?.()?.width;
     if (typeof width === "number" && Number.isFinite(width) && width > 0) {
-      layout.widths[id] = width;
+      layout.widths[id] = clampOpenWidth(width, layout.widths[id] || 240);
     }
   }
+  clampOpenPaneWidths();
 }
 
 function columnFor(id) {
   if (layout.open[id] === false) return "0px";
   if (id === "explorer" || layout.fixed[id]) {
-    return `${layout.widths[id] || 240}px`;
+    return `minmax(${clampOpenWidth(layout.widths[id])}px, 1fr)`;
   }
-  return "1fr";
+  return `minmax(${MIN_PANE}px, 1fr)`;
 }
 
 function visiblePaneIds() {
@@ -142,21 +156,58 @@ function pairForSplitter(el) {
   return null;
 }
 
+function freezeVisiblePaneWidths(except = []) {
+  const skip = new Set(except);
+  for (const id of visiblePaneIds()) {
+    layout.fixed[id] = true;
+    if (skip.has(id)) continue;
+    layout.widths[id] = clampOpenWidth(paneWidth(id), layout.widths[id] || 240);
+  }
+}
+
+function liftPairToMin(leftStart, rightStart) {
+  let left = leftStart;
+  let right = rightStart;
+  if (left < MIN_PANE) {
+    right -= MIN_PANE - left;
+    left = MIN_PANE;
+  }
+  if (right < MIN_PANE) {
+    left -= MIN_PANE - right;
+    right = MIN_PANE;
+  }
+  left = Math.max(MIN_PANE, left);
+  right = Math.max(MIN_PANE, right);
+  return { left, right };
+}
+
 function applySplitterDelta(left, right, delta, startLeft, startRight) {
   if (!isPaneId(left) || !isPaneId(right)) return false;
   if (layout.open[left] === false || layout.open[right] === false) return false;
+  freezeVisiblePaneWidths([left, right]);
   const sl = Number(startLeft);
   const sr = Number(startRight);
-  const leftStart = Number.isFinite(sl) && sl > 0 ? sl : paneWidth(left);
-  const rightStart = Number.isFinite(sr) && sr > 0 ? sr : paneWidth(right);
+  let leftStart = Number.isFinite(sl) && sl > 0 ? sl : paneWidth(left);
+  let rightStart = Number.isFinite(sr) && sr > 0 ? sr : paneWidth(right);
   let d = Number(delta);
   if (!Number.isFinite(d)) d = 0;
-  const minD = MIN_PANE - leftStart;
-  const maxD = rightStart - MIN_PANE;
-  if (d < minD) d = minD;
-  if (d > maxD) d = maxD;
-  layout.widths[left] = leftStart + d;
-  layout.widths[right] = rightStart - d;
+  let minD = MIN_PANE - leftStart;
+  let maxD = rightStart - MIN_PANE;
+  if (maxD < minD) {
+    const lifted = liftPairToMin(leftStart, rightStart);
+    leftStart = lifted.left;
+    rightStart = lifted.right;
+    minD = MIN_PANE - leftStart;
+    maxD = rightStart - MIN_PANE;
+  }
+  if (minD <= maxD) {
+    if (d < minD) d = minD;
+    if (d > maxD) d = maxD;
+  } else {
+    d = 0;
+  }
+  layout.widths[left] = Math.max(MIN_PANE, leftStart + d);
+  layout.widths[right] = Math.max(MIN_PANE, rightStart - d);
   layout.fixed[left] = true;
   layout.fixed[right] = true;
   applyLayoutToDom();
@@ -186,6 +237,7 @@ function onSplitterDown(ev) {
   const startX = eventClientX(ev);
   if (startX == null) return;
   if (typeof ev.preventDefault === "function") ev.preventDefault();
+  freezeVisiblePaneWidths();
   drag = {
     left: pair[0],
     right: pair[1],
@@ -430,6 +482,7 @@ export function persistLayout() {
     return;
   }
   captureWidths();
+  clampOpenPaneWidths();
   const size = windowSize();
   layout.window.width = size.width;
   layout.window.height = size.height;
@@ -519,6 +572,7 @@ export function restoreLayout() {
   if (Number.isFinite(width) && width > 0) layout.window.width = width;
   if (Number.isFinite(height) && height > 0) layout.window.height = height;
   if (typeof parsed.remember === "boolean") layout.remember = parsed.remember;
+  clampOpenPaneWidths();
   applyWindowSize();
   applyLayoutToDom();
 }
