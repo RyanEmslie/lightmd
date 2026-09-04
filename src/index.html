@@ -131,11 +131,6 @@
         color: var(--fg);
       }
 
-      #open-folder {
-        flex: none;
-        align-self: start;
-      }
-
       #explorer-toolbar,
       #layout-bar {
         display: flex;
@@ -145,7 +140,8 @@
       }
 
       #explorer-toolbar {
-        margin-top: 8px;
+        flex: none;
+        margin: 0;
       }
 
       #layout-bar {
@@ -156,7 +152,10 @@
         border-bottom: 1px solid var(--border);
       }
 
-      #sidebar-toggle {
+      #sidebar-toggle,
+      #open-folder,
+      #new-note,
+      #layout-bar > button[data-pane-toggle] {
         display: inline-flex;
         align-items: center;
         justify-content: center;
@@ -169,10 +168,20 @@
         border: 1px solid var(--border);
       }
 
-      #sidebar-toggle svg {
+      #sidebar-toggle svg,
+      #open-folder svg,
+      #new-note svg,
+      #layout-bar > button[data-pane-toggle] svg {
         display: block;
         width: 16px;
         height: 16px;
+      }
+
+      #sidebar-toggle:hover,
+      #open-folder:hover,
+      #new-note:hover,
+      #layout-bar > button[data-pane-toggle]:hover {
+        background: var(--bg-elevated);
       }
 
       #explorer-sort,
@@ -556,8 +565,30 @@
         <option value="editor-only">Editor only</option>
         <option value="reader-only">Reader only</option>
       </select>
-      <button type="button" data-pane-toggle="editor" aria-pressed="true">Hide</button>
-      <button type="button" data-pane-toggle="preview" aria-pressed="true">Hide</button>
+      <button
+        type="button"
+        data-pane-toggle="editor"
+        aria-pressed="true"
+        aria-label="Hide editor"
+        title="Hide editor"
+      >
+        <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" focusable="false">
+          <rect x="1.5" y="2.5" width="13" height="11" rx="2" fill="none" stroke="currentColor" stroke-width="1.25" />
+          <rect x="1.5" y="2.5" width="7" height="11" rx="2" fill="currentColor" />
+        </svg>
+      </button>
+      <button
+        type="button"
+        data-pane-toggle="preview"
+        aria-pressed="true"
+        aria-label="Hide preview"
+        title="Hide preview"
+      >
+        <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" focusable="false">
+          <rect x="1.5" y="2.5" width="13" height="11" rx="2" fill="none" stroke="currentColor" stroke-width="1.25" />
+          <rect x="7.5" y="2.5" width="7" height="11" rx="2" fill="currentColor" />
+        </svg>
+      </button>
       <label for="pane-order">Order</label>
       <select id="pane-order">
         <option value="editor,preview" selected>Editor, preview</option>
@@ -744,9 +775,43 @@
     </section>
     <div id="shell">
       <aside id="explorer" class="pane" tabindex="0">
-        <button type="button" id="open-folder">Open Folder</button>
         <div id="explorer-toolbar">
-          <button type="button" id="new-note">New Note</button>
+          <button
+            type="button"
+            id="open-folder"
+            aria-label="Open Folder"
+            title="Open Folder"
+          >
+            <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" focusable="false">
+              <path
+                fill="none"
+                stroke="currentColor"
+                stroke-width="1.25"
+                d="M1.5 13.5V4.75h4.1l1.4 1.75H14.5v7z"
+              />
+            </svg>
+          </button>
+          <button
+            type="button"
+            id="new-note"
+            aria-label="New Note"
+            title="New Note"
+          >
+            <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" focusable="false">
+              <path
+                fill="none"
+                stroke="currentColor"
+                stroke-width="1.25"
+                d="M4.5 2.5h5L12.5 5.5v8h-8z"
+              />
+              <path
+                fill="none"
+                stroke="currentColor"
+                stroke-width="1.25"
+                d="M9.5 2.5v3h3M8 8.5v4M6 10.5h4"
+              />
+            </svg>
+          </button>
           <label for="explorer-sort">Sort</label>
           <select id="explorer-sort">
             <option value="name">Name</option>

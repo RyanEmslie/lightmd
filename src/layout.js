@@ -508,8 +508,14 @@ function syncLayoutControls() {
       if (btn.getAttribute?.("aria-label") != null) {
         btn.setAttribute("aria-label", label);
       }
+      if (btn.getAttribute?.("title") != null) {
+        btn.setAttribute("title", label);
+      }
     }
-    btn.textContent = label;
+    const markup = String(btn.innerHTML || "");
+    if (!/<svg\b|<img\b|<i\b|<use\b/i.test(markup)) {
+      btn.textContent = label;
+    }
   }
   syncSidebarToggle();
 }
