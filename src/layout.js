@@ -1,5 +1,6 @@
 const PANE_IDS = ["explorer", "editor", "preview"];
 const STORAGE_KEY = "lightmd.layout";
+const MIN_PANE = 160;
 
 export const layout = {
   order: ["explorer", "editor", "preview"],
@@ -7,7 +8,12 @@ export const layout = {
   widths: { explorer: 240, editor: 400, preview: 400 },
   window: { width: 800, height: 600 },
   remember: true,
+  fixed: { explorer: true, editor: false, preview: false },
 };
+
+let drag = null;
+let pointerTrackingBound = false;
+const boundSplitters = new WeakSet();
 
 function doc() {
   return typeof globalThis.document !== "undefined" ? globalThis.document : null;
@@ -53,8 +59,259 @@ function captureWidths() {
 
 function columnFor(id) {
   if (layout.open[id] === false) return "0px";
-  if (id === "explorer") return `${layout.widths.explorer || 240}px`;
+  if (id === "explorer" || layout.fixed[id]) {
+    return `${layout.widths[id] || 240}px`;
+  }
   return "1fr";
+}
+
+function visiblePaneIds() {
+  return layout.order.filter((id) => isPaneId(id) && layout.open[id] !== false);
+}
+
+function paneWidth(id) {
+  const d = doc();
+  const el = d && typeof d.getElementById === "function" ? d.getElementById(id) : null;
+  const measured = el?.getBoundingClientRect?.()?.width;
+  if (typeof measured === "number" && Number.isFinite(measured) && measured > 0) {
+    return measured;
+  }
+  const stored = Number(layout.widths[id]);
+  if (Number.isFinite(stored) && stored > 0) return stored;
+  return 240;
+}
+
+function isSplitterEl(el) {
+  if (!el) return false;
+  if (el.classList && typeof el.classList.contains === "function" && el.classList.contains("splitter")) {
+    return true;
+  }
+  if (/\bsplitter\b/.test(el.className || "")) return true;
+  if (typeof el.getAttribute === "function" && el.getAttribute("role") === "separator") return true;
+  return false;
+}
+
+function collectSplitters(d) {
+  const out = [];
+  const seen = new Set();
+  if (!d || typeof d.querySelectorAll !== "function") return out;
+  for (const sel of [".splitter", '[role="separator"]']) {
+    let list = [];
+    try {
+      list = d.querySelectorAll(sel) || [];
+    } catch {
+      list = [];
+    }
+    for (const el of list) {
+      if (!el || seen.has(el)) continue;
+      seen.add(el);
+      out.push(el);
+    }
+  }
+  return out;
+}
+
+function showSplitter(el) {
+  if (!el) return;
+  el.hidden = false;
+  if (typeof el.removeAttribute === "function") el.removeAttribute("hidden");
+  if (el.style) el.style.display = "";
+}
+
+function hideSplitter(el) {
+  if (!el) return;
+  el.hidden = true;
+  if (typeof el.setAttribute === "function") el.setAttribute("hidden", "");
+  if (el.dataset) {
+    el.dataset.left = "";
+    el.dataset.right = "";
+  }
+}
+
+function pairForSplitter(el) {
+  if (!el) return null;
+  const left = el.dataset?.left;
+  const right = el.dataset?.right;
+  if (isPaneId(left) && isPaneId(right) && layout.open[left] !== false && layout.open[right] !== false) {
+    return [left, right];
+  }
+  const parentId = el.parentNode?.id;
+  const vis = visiblePaneIds();
+  const idx = vis.indexOf(parentId);
+  if (idx >= 0 && idx < vis.length - 1) return [vis[idx], vis[idx + 1]];
+  return null;
+}
+
+function applySplitterDelta(left, right, delta, startLeft, startRight) {
+  if (!isPaneId(left) || !isPaneId(right)) return false;
+  if (layout.open[left] === false || layout.open[right] === false) return false;
+  const sl = Number(startLeft);
+  const sr = Number(startRight);
+  const leftStart = Number.isFinite(sl) && sl > 0 ? sl : paneWidth(left);
+  const rightStart = Number.isFinite(sr) && sr > 0 ? sr : paneWidth(right);
+  let d = Number(delta);
+  if (!Number.isFinite(d)) d = 0;
+  const minD = MIN_PANE - leftStart;
+  const maxD = rightStart - MIN_PANE;
+  if (d < minD) d = minD;
+  if (d > maxD) d = maxD;
+  layout.widths[left] = leftStart + d;
+  layout.widths[right] = rightStart - d;
+  layout.fixed[left] = true;
+  layout.fixed[right] = true;
+  applyLayoutToDom();
+  return true;
+}
+
+function persistAfterDrag(end) {
+  if (end) persistLayout();
+  else if (layout.remember !== false) persistLayout();
+}
+
+function eventClientX(ev) {
+  const x = Number(ev?.clientX);
+  if (Number.isFinite(x)) return x;
+  const pageX = Number(ev?.pageX);
+  if (Number.isFinite(pageX)) return pageX;
+  return null;
+}
+
+function onSplitterDown(ev) {
+  if (drag) return;
+  const target = ev?.currentTarget && isSplitterEl(ev.currentTarget) ? ev.currentTarget : ev?.target;
+  const el = isSplitterEl(target) ? target : null;
+  if (!el) return;
+  const pair = pairForSplitter(el);
+  if (!pair) return;
+  const startX = eventClientX(ev);
+  if (startX == null) return;
+  if (typeof ev.preventDefault === "function") ev.preventDefault();
+  drag = {
+    left: pair[0],
+    right: pair[1],
+    startX,
+    startLeft: paneWidth(pair[0]),
+    startRight: paneWidth(pair[1]),
+    pointerId: ev.pointerId,
+    el,
+  };
+  if (ev.pointerId != null && typeof el.setPointerCapture === "function") {
+    try {
+      el.setPointerCapture(ev.pointerId);
+    } catch {
+      // capture is optional in tests / non-pointer hosts
+    }
+  }
+}
+
+function onPointerMove(ev) {
+  if (!drag) return;
+  const x = eventClientX(ev);
+  if (x == null) return;
+  const delta = x - drag.startX;
+  applySplitterDelta(drag.left, drag.right, delta, drag.startLeft, drag.startRight);
+  persistAfterDrag(false);
+}
+
+function onPointerUp(ev) {
+  if (!drag) return;
+  const x = eventClientX(ev);
+  if (x != null) {
+    applySplitterDelta(drag.left, drag.right, x - drag.startX, drag.startLeft, drag.startRight);
+  }
+  const el = drag.el;
+  const pointerId = drag.pointerId;
+  drag = null;
+  if (pointerId != null && el && typeof el.releasePointerCapture === "function") {
+    try {
+      el.releasePointerCapture(pointerId);
+    } catch {
+      // ignore
+    }
+  }
+  persistAfterDrag(true);
+}
+
+function ensureSplitterBound(el) {
+  if (!el || boundSplitters.has(el)) return;
+  if (typeof el.addEventListener !== "function") return;
+  boundSplitters.add(el);
+  el.addEventListener("pointerdown", onSplitterDown);
+  el.addEventListener("mousedown", onSplitterDown);
+}
+
+function placeSplitters() {
+  const d = doc();
+  if (!d) return;
+  const vis = visiblePaneIds();
+  const splitters = collectSplitters(d);
+  const used = new Set();
+  for (let i = 0; i < vis.length - 1; i++) {
+    const leftId = vis[i];
+    const rightId = vis[i + 1];
+    const leftEl = typeof d.getElementById === "function" ? d.getElementById(leftId) : null;
+    let splitter = null;
+    const kids = leftEl && Array.isArray(leftEl.children) ? leftEl.children : leftEl?.children;
+    if (kids) {
+      for (const child of kids) {
+        if (isSplitterEl(child) && !used.has(child)) {
+          splitter = child;
+          break;
+        }
+      }
+    }
+    if (!splitter) {
+      splitter = splitters.find((s) => !used.has(s)) || null;
+    }
+    if (!splitter) continue;
+    used.add(splitter);
+    if (leftEl && splitter.parentNode !== leftEl && typeof leftEl.appendChild === "function") {
+      leftEl.appendChild(splitter);
+    }
+    if (splitter.dataset) {
+      splitter.dataset.left = leftId;
+      splitter.dataset.right = rightId;
+    }
+    showSplitter(splitter);
+    ensureSplitterBound(splitter);
+  }
+  for (const splitter of splitters) {
+    if (used.has(splitter)) continue;
+    hideSplitter(splitter);
+  }
+}
+
+function bindPointerTracking() {
+  if (pointerTrackingBound) return;
+  pointerTrackingBound = true;
+  const targets = [doc(), globalThis];
+  for (const t of targets) {
+    if (!t || typeof t.addEventListener !== "function") continue;
+    t.addEventListener("pointermove", onPointerMove);
+    t.addEventListener("pointerup", onPointerUp);
+    t.addEventListener("pointercancel", onPointerUp);
+    t.addEventListener("mousemove", onPointerMove);
+    t.addEventListener("mouseup", onPointerUp);
+  }
+}
+
+export function dragSplitter(left, right, deltaX) {
+  if (left && typeof left === "object") {
+    deltaX = left.deltaX ?? left.delta ?? deltaX;
+    right = left.right ?? right;
+    left = left.left;
+  } else if (right && typeof right === "object") {
+    deltaX = right.deltaX ?? right.delta ?? deltaX;
+  } else if (typeof left === "number" && typeof right === "number") {
+    const vis = visiblePaneIds();
+    const pair = vis[left] && vis[left + 1] ? [vis[left], vis[left + 1]] : null;
+    if (!pair) return;
+    left = pair[0];
+    deltaX = right;
+    right = pair[1];
+  }
+  const ok = applySplitterDelta(left, right, deltaX, paneWidth(left), paneWidth(right));
+  if (ok) persistAfterDrag(true);
 }
 
 function applyPane(el, open) {
@@ -105,6 +362,7 @@ function applyLayoutToDom() {
     }
   }
   syncLayoutControls();
+  placeSplitters();
 }
 
 function syncLayoutControls() {
@@ -185,6 +443,7 @@ export function persistLayout() {
     open: { ...layout.open },
     collapsed,
     widths: { ...layout.widths },
+    fixed: { ...layout.fixed },
     window: {
       width: size.width,
       height: size.height,
@@ -246,6 +505,12 @@ export function restoreLayout() {
     for (const id of PANE_IDS) {
       const n = Number(parsed.widths[id]);
       if (Number.isFinite(n) && n > 0) layout.widths[id] = n;
+    }
+  }
+  layout.fixed = { explorer: true, editor: false, preview: false };
+  if (parsed.fixed && typeof parsed.fixed === "object") {
+    for (const id of PANE_IDS) {
+      if (typeof parsed.fixed[id] === "boolean") layout.fixed[id] = parsed.fixed[id];
     }
   }
   const win = parsed.window && typeof parsed.window === "object" ? parsed.window : parsed;
@@ -348,6 +613,8 @@ function bindLayoutControls() {
       persistLayout();
     });
   }
+  placeSplitters();
+  bindPointerTracking();
 }
 
 try {
