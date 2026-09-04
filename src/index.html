@@ -155,6 +155,7 @@
       #pane-order,
       #explorer-sort,
       #find-query,
+      #find-workspace-query,
       #editor-theme,
       #preview-theme,
       #settings select,
@@ -290,6 +291,65 @@
         min-width: 10em;
         flex: 1 1 8em;
         max-width: 20em;
+      }
+
+      #find-workspace {
+        flex: none;
+        display: flex;
+        flex-direction: column;
+        min-height: 0;
+        max-height: 40%;
+        margin-top: 8px;
+        padding-top: 8px;
+        border-top: 1px solid var(--border);
+      }
+
+      #find-workspace-bar {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 8px;
+        flex: none;
+      }
+
+      #find-workspace-query {
+        font: inherit;
+        min-width: 8em;
+        flex: 1 1 8em;
+      }
+
+      #find-workspace-status {
+        color: var(--fg-muted);
+        flex: none;
+      }
+
+      #find-workspace-results {
+        list-style: none;
+        margin: 8px 0 0;
+        padding: 0;
+        overflow: auto;
+        min-height: 0;
+      }
+
+      #find-workspace-results li {
+        min-height: 28px;
+        line-height: 1.25;
+        cursor: pointer;
+        overflow: hidden;
+      }
+
+      #find-workspace-results .find-workspace-path {
+        color: var(--fg);
+        overflow: hidden;
+        white-space: nowrap;
+        text-overflow: ellipsis;
+      }
+
+      #find-workspace-results .find-workspace-preview {
+        color: var(--fg-muted);
+        overflow: hidden;
+        white-space: nowrap;
+        text-overflow: ellipsis;
       }
 
       #frontmatter {
@@ -654,6 +714,19 @@
           </label>
         </div>
         <ul id="file-list"></ul>
+        <div id="find-workspace">
+          <div id="find-workspace-bar">
+            <input
+              type="search"
+              id="find-workspace-query"
+              placeholder="Find in workspace"
+              autocomplete="off"
+            />
+            <button type="button" id="find-workspace-run">Run</button>
+            <span id="find-workspace-status"></span>
+          </div>
+          <ul id="find-workspace-results"></ul>
+        </div>
         <div class="splitter" role="separator" aria-orientation="vertical"></div>
       </aside>
       <main id="editor" class="pane" tabindex="0">

@@ -5,7 +5,13 @@ import { defaultKeymap, history, historyKeymap } from "@codemirror/commands";
 import { markdown, markdownLanguage } from "@codemirror/lang-markdown";
 import { parseFrontmatter } from "./frontmatter.js";
 import { cancelAutosave, scheduleAutoSave } from "./autosave.js";
-import { findExtension, runFind } from "./find.js";
+import {
+  findExtension,
+  findInWorkspace,
+  findOptions,
+  openWorkspaceHit,
+  runFind,
+} from "./find.js";
 import { preview as previewConfig, renderPreview, rewritePreviewImages, bindPreviewLinks } from "./preview.js";
 import { isHtmlFile, showHtmlViewer, hideHtmlViewer } from "./html-viewer.js";
 import { applyTheme, setEditorTheme, setPreviewTheme } from "./palettes.js";
@@ -228,6 +234,139 @@ if (findQuery) {
     if (event.key === "Enter") {
       event.preventDefault();
       applyFind();
+    }
+  });
+}
+
+const workspaceQuery = document.getElementById("find-workspace-query");
+const workspaceRun = document.getElementById("find-workspace-run");
+const workspaceStatus = document.getElementById("find-workspace-status");
+const workspaceResults = document.getElementById("find-workspace-results");
+const WORKSPACE_FILE_CAP = 1024 * 1024;
+let workspaceSearchGen = 0;
+
+function yieldToUi() {
+  return new Promise((resolve) => {
+    setTimeout(resolve, 0);
+  });
+}
+
+function listedWorkspaceEntry(entry) {
+  if (!entry || entry.is_dir) return false;
+  return /\.(md|html|htm)$/i.test(String(entry.relative_path || ""));
+}
+
+function renderWorkspaceHits(hits) {
+  if (!workspaceResults) return;
+  workspaceResults.replaceChildren();
+  for (const hit of hits) {
+    const item = document.createElement("li");
+    item.dataset.relative = hit.relative;
+    item.dataset.from = String(hit.from);
+    item.dataset.to = String(hit.to);
+    if (typeof hit.line === "number") item.dataset.line = String(hit.line);
+    const path = document.createElement("div");
+    path.className = "find-workspace-path";
+    path.textContent = hit.relative;
+    const preview = document.createElement("div");
+    preview.className = "find-workspace-preview";
+    preview.textContent = hit.preview || "";
+    item.append(path, preview);
+    workspaceResults.appendChild(item);
+  }
+}
+
+async function listWorkspaceEntries(path) {
+  const tauri = window.__TAURI__;
+  if (!tauri || !tauri.core || typeof tauri.core.invoke !== "function") {
+    return [];
+  }
+  return tauri.core.invoke("list_workspace", { path });
+}
+
+async function readWorkspaceText(path, relative) {
+  const tauri = window.__TAURI__;
+  if (!tauri || !tauri.core || typeof tauri.core.invoke !== "function") {
+    return "";
+  }
+  return tauri.core.invoke("read_workspace_file", { path, relative });
+}
+
+async function runWorkspaceFind() {
+  const gen = ++workspaceSearchGen;
+  const needle = workspaceQuery ? workspaceQuery.value : "";
+  if (workspaceStatus) workspaceStatus.textContent = "Searching…";
+  if (workspaceResults) workspaceResults.replaceChildren();
+  if (!needle) {
+    if (workspaceStatus) workspaceStatus.textContent = "0 results";
+    return;
+  }
+  const ws = window.lightmdWorkspace;
+  const root = ws && ws.path;
+  if (!root) {
+    if (workspaceStatus) workspaceStatus.textContent = "0 results";
+    return;
+  }
+  let entries = [];
+  try {
+    entries = await listWorkspaceEntries(root);
+  } catch {
+    entries = [];
+  }
+  if (gen !== workspaceSearchGen) return;
+  const files = [];
+  for (const entry of entries) {
+    if (gen !== workspaceSearchGen) return;
+    if (!listedWorkspaceEntry(entry)) continue;
+    await yieldToUi();
+    if (gen !== workspaceSearchGen) return;
+    try {
+      const text = await readWorkspaceText(root, entry.relative_path);
+      if (typeof text === "string" && text.length <= WORKSPACE_FILE_CAP) {
+        files.push({ relative: entry.relative_path, text });
+      }
+    } catch {
+      // skip unreadable files
+    }
+  }
+  if (gen !== workspaceSearchGen) return;
+  const hits = findInWorkspace(files, needle, findOptions) || [];
+  renderWorkspaceHits(hits);
+  if (workspaceStatus) workspaceStatus.textContent = `${hits.length} results`;
+}
+
+if (workspaceRun) workspaceRun.addEventListener("click", () => {
+  void runWorkspaceFind();
+});
+if (workspaceQuery) {
+  workspaceQuery.addEventListener("keydown", (event) => {
+    if (event.key === "Enter") {
+      event.preventDefault();
+      void runWorkspaceFind();
+    }
+  });
+}
+if (workspaceResults) {
+  workspaceResults.addEventListener("click", async (event) => {
+    const item = event.target.closest("li");
+    if (!item || !workspaceResults.contains(item)) return;
+    const from = Number(item.dataset.from);
+    const to = Number(item.dataset.to);
+    const line = Number(item.dataset.line);
+    const hit = {
+      relative: item.dataset.relative,
+      from: Number.isFinite(from) ? from : undefined,
+      to: Number.isFinite(to) ? to : undefined,
+      line: Number.isFinite(line) ? line : undefined,
+    };
+    await openWorkspaceHit(hit, {
+      applyFile: window.lightmdOpenFile,
+      view,
+      runFind,
+      needle: workspaceQuery ? workspaceQuery.value : "",
+    });
+    if (typeof window.lightmdPersistSession === "function" && hit.relative) {
+      window.lightmdPersistSession({ lastFile: hit.relative, file: hit.relative });
     }
   });
 }
