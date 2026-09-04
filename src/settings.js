@@ -337,7 +337,7 @@ export function bindSettings() {
   });
   on(d.getElementById("settings-remember-layout"), "change", (event) => {
     layout.remember = !!event.target.checked;
-    if (layout.remember) persistLayout();
+    persistLayout();
   });
 
   const sortMain = d.getElementById("explorer-sort");

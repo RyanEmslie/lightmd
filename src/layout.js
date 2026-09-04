@@ -157,7 +157,14 @@ function applyWindowSize() {
 export function persistLayout() {
   const ls = storage();
   if (!ls || typeof ls.setItem !== "function") return;
-  if (layout.remember === false) return;
+  if (layout.remember === false) {
+    try {
+      ls.setItem(STORAGE_KEY, JSON.stringify({ remember: false }));
+    } catch {
+      // ignore quota / missing storage
+    }
+    return;
+  }
   captureWidths();
   const size = windowSize();
   layout.window.width = size.width;
@@ -178,7 +185,7 @@ export function persistLayout() {
       innerWidth: size.width,
       innerHeight: size.height,
     },
-    remember: layout.remember !== false,
+    remember: true,
   };
   try {
     ls.setItem(STORAGE_KEY, JSON.stringify(payload));
@@ -199,6 +206,10 @@ export function restoreLayout() {
     return;
   }
   if (!parsed || typeof parsed !== "object") return;
+  if (parsed.remember === false) {
+    layout.remember = false;
+    return;
+  }
   if (Array.isArray(parsed.order)) {
     const next = parsed.order.map(String).filter(isPaneId);
     if (next.length) layout.order = next;
