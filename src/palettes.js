@@ -6,9 +6,14 @@ const TOKEN_NAMES = [
   "--border",
   "--accent",
   "--danger",
+  "--h1",
+  "--h2",
+  "--h3",
+  "--link",
+  "--code",
 ];
 
-function tokens(bg, bgElevated, fg, fgMuted, border, accent, danger) {
+function tokens(bg, bgElevated, fg, fgMuted, border, accent, danger, preview) {
   return {
     "--bg": bg,
     "--bg-elevated": bgElevated,
@@ -17,6 +22,11 @@ function tokens(bg, bgElevated, fg, fgMuted, border, accent, danger) {
     "--border": border,
     "--accent": accent,
     "--danger": danger,
+    "--h1": preview.h1,
+    "--h2": preview.h2,
+    "--h3": preview.h3,
+    "--link": preview.link,
+    "--code": preview.code,
   };
 }
 
@@ -29,6 +39,7 @@ export const palettes = {
     "#e5e5e5",
     "#007acc",
     "#e51400",
+    { h1: "#1a365d", h2: "#1e4e8c", h3: "#2b6cb0", link: "#0b57d0", code: "#a31515" },
   ),
   Dark: tokens(
     "#1a1a1a",
@@ -38,6 +49,7 @@ export const palettes = {
     "#3a3a3a",
     "#4ea1ff",
     "#ff6b6b",
+    { h1: "#8ec8ff", h2: "#6cb6ff", h3: "#4ea1ff", link: "#79b8ff", code: "#e2c08d" },
   ),
   "High Contrast Light": tokens(
     "#ffffff",
@@ -47,6 +59,7 @@ export const palettes = {
     "#000000",
     "#0000ee",
     "#d00000",
+    { h1: "#000066", h2: "#0000aa", h3: "#000080", link: "#0000ee", code: "#800000" },
   ),
   "High Contrast Dark": tokens(
     "#000000",
@@ -56,6 +69,7 @@ export const palettes = {
     "#ffffff",
     "#ffff00",
     "#ff2020",
+    { h1: "#ffff00", h2: "#00ffff", h3: "#7fff00", link: "#66b3ff", code: "#ffd000" },
   ),
   "Dark+": tokens(
     "#1e1e1e",
@@ -65,6 +79,7 @@ export const palettes = {
     "#3c3c3c",
     "#007acc",
     "#f48771",
+    { h1: "#569cd6", h2: "#4ec9b0", h3: "#c586c0", link: "#3794ff", code: "#ce9178" },
   ),
   "Solarized Light": tokens(
     "#fdf6e3",
@@ -74,6 +89,7 @@ export const palettes = {
     "#eee8d5",
     "#268bd2",
     "#dc322f",
+    { h1: "#cb4b16", h2: "#268bd2", h3: "#6c71c4", link: "#268bd2", code: "#d33682" },
   ),
   "Solarized Dark": tokens(
     "#002b36",
@@ -83,6 +99,7 @@ export const palettes = {
     "#073642",
     "#268bd2",
     "#dc322f",
+    { h1: "#cb4b16", h2: "#268bd2", h3: "#859900", link: "#268bd2", code: "#2aa198" },
   ),
   Monokai: tokens(
     "#272822",
@@ -92,6 +109,7 @@ export const palettes = {
     "#3e3d32",
     "#66d9ef",
     "#f92672",
+    { h1: "#f92672", h2: "#a6e22e", h3: "#ae81ff", link: "#66d9ef", code: "#e6db74" },
   ),
 };
 
