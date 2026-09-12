@@ -155,6 +155,7 @@
       #sidebar-toggle,
       #open-folder,
       #new-note,
+      #new-folder,
       #layout-bar > button[data-pane-toggle] {
         display: inline-flex;
         align-items: center;
@@ -171,6 +172,7 @@
       #sidebar-toggle svg,
       #open-folder svg,
       #new-note svg,
+      #new-folder svg,
       #layout-bar > button[data-pane-toggle] svg {
         display: block;
         width: 16px;
@@ -180,6 +182,7 @@
       #sidebar-toggle:hover,
       #open-folder:hover,
       #new-note:hover,
+      #new-folder:hover,
       #layout-bar > button[data-pane-toggle]:hover {
         background: var(--bg-elevated);
       }
@@ -238,7 +241,17 @@
       }
 
       #file-list li[data-dir="false"] {
+        display: flex;
+        align-items: center;
+        gap: 6px;
         cursor: pointer;
+      }
+
+      #file-list li[data-dir="false"] svg {
+        flex: none;
+        width: 12px;
+        height: 12px;
+        color: currentColor;
       }
 
       #file-list li[data-dir="false"][aria-selected="true"],
@@ -876,6 +889,27 @@
               />
             </svg>
           </button>
+          <button
+            type="button"
+            id="new-folder"
+            aria-label="New Folder"
+            title="New Folder"
+          >
+            <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" focusable="false">
+              <path
+                fill="none"
+                stroke="currentColor"
+                stroke-width="1.25"
+                d="M1.5 13.5V4.75h4.1l1.4 1.75H9.5"
+              />
+              <path
+                fill="none"
+                stroke="currentColor"
+                stroke-width="1.25"
+                d="M12 7.5v5M9.5 10h5"
+              />
+            </svg>
+          </button>
           <label for="explorer-sort">Sort</label>
           <select id="explorer-sort">
             <option value="name">Name</option>
@@ -964,6 +998,7 @@
       (function () {
         const button = document.getElementById("open-folder");
         const newNoteButton = document.getElementById("new-note");
+        const newFolderButton = document.getElementById("new-folder");
         const saveButton = document.getElementById("save");
         const saveAsButton = document.getElementById("save-as");
         const dirtyDot = document.getElementById("dirty");
@@ -1059,7 +1094,10 @@
             details.appendChild(nested);
             item.appendChild(details);
           } else {
-            item.textContent = displayName(node.name, false);
+            item.appendChild(fileTypeIcon(node.path));
+            const label = document.createElement("span");
+            label.textContent = displayName(node.name, false);
+            item.appendChild(label);
           }
           list.appendChild(item);
         }
@@ -1286,6 +1324,7 @@
           const i = name.lastIndexOf(".");
           const ext = i > 0 ? name.slice(i + 1).toLowerCase() : "";
           if (ext === "html" || ext === "htm") return "html";
+          if (ext === "txt") return "txt";
           return "md";
         }
 
@@ -1308,10 +1347,13 @@
           svg.dataset.type = kind;
           const path = createSvg("path");
           path.setAttribute("fill", "currentColor");
-          path.setAttribute(
-            "d",
-            kind === "html" ? "M3 2h7l3 3v9H3zm7 0v3h3" : "M4 2h6l3 3v9H4z",
-          );
+          let d = "M4 2h6l3 3v9H4zM6 8v5h1V10l1.2 2 1.2-2v3h1V8H9.2L8.2 10 7.2 8z";
+          if (kind === "txt") {
+            d = "M4 2h6l3 3v9H4zM6 8h6M6 10.5h5M6 13h4";
+          } else if (kind === "html") {
+            d = "M3 2h7l3 3v9H3zm7 0v3h3";
+          }
+          path.setAttribute("d", d);
           svg.appendChild(path);
           return svg;
         }
@@ -1485,6 +1527,34 @@
           renderTabs();
         }
 
+        async function newFolder() {
+          if (!workspacePath) return;
+          const raw =
+            typeof window.prompt === "function" ? window.prompt("Folder name") : null;
+          if (raw == null) return;
+          const name = String(raw).trim();
+          if (!name) return;
+          if (
+            name.includes("/") ||
+            name.includes("\\") ||
+            name.includes("..") ||
+            name.startsWith("/") ||
+            /^[A-Za-z]:/.test(name) ||
+            isEscapingRelative(name)
+          ) {
+            return;
+          }
+          const tauri = window.__TAURI__;
+          if (!tauri || !tauri.core || typeof tauri.core.invoke !== "function") {
+            return;
+          }
+          await tauri.core.invoke("create_workspace_folder", {
+            path: workspacePath,
+            relative: name,
+          });
+          await loadWorkspace(workspacePath);
+        }
+
         async function newNote() {
           // Bound dirty: start a blank session (discards). Unbound dirty: confirm first.
           if (dirty && !currentRelative) {
@@ -1582,6 +1652,7 @@
         window.lightmdOpenFolder = applyFolder;
         window.lightmdOpenFile = applyFile;
         window.lightmdNewNote = newNote;
+        window.lightmdNewFolder = newFolder;
         window.lightmdSaveAs = saveAs;
         window.newNote = newNote;
         window.saveAs = saveAs;
@@ -1596,6 +1667,9 @@
 
         if (newNoteButton) {
           newNoteButton.addEventListener("click", () => newNote());
+        }
+        if (newFolderButton) {
+          newFolderButton.addEventListener("click", () => newFolder());
         }
         if (saveAsButton) {
           saveAsButton.addEventListener("click", () => saveAs());
