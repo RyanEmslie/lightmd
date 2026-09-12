@@ -172,6 +172,11 @@ pub fn write_file(
     fs::write(path, contents)
 }
 
+pub fn create_folder(root: &Path, relative: impl AsRef<Path>) -> io::Result<()> {
+    let path = confined_path(root, relative)?;
+    fs::create_dir_all(path)
+}
+
 #[tauri::command]
 fn list_workspace(path: String, sort: Option<String>) -> Result<Vec<Entry>, String> {
     let root = Path::new(&path);
@@ -194,6 +199,11 @@ fn write_workspace_file(path: String, relative: String, contents: String) -> Res
 }
 
 #[tauri::command]
+fn create_workspace_folder(path: String, relative: String) -> Result<(), String> {
+    create_folder(Path::new(&path), &relative).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
 fn read_workspace_image(path: String, relative: String) -> Result<Vec<u8>, String> {
     read_image(Path::new(&path), &relative).map_err(|e| e.to_string())
 }
@@ -207,7 +217,8 @@ pub fn run() {
             list_workspace,
             read_workspace_file,
             write_workspace_file,
-            read_workspace_image
+            read_workspace_image,
+            create_workspace_folder
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
@@ -431,6 +442,39 @@ mod tests {
         assert_eq!(
             after, original,
             "write_file must not mutate a path outside the workspace root"
+        );
+    }
+
+    #[test]
+    fn create_folder_nested_and_rejects_escape() {
+        let root = std::env::temp_dir().join(format!(
+            "lightmd-create-folder-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_nanos())
+                .unwrap_or(0)
+        ));
+        std::fs::create_dir_all(&root).expect("temp workspace");
+        struct RemoveDirOnDrop(PathBuf);
+        impl Drop for RemoveDirOnDrop {
+            fn drop(&mut self) {
+                let _ = std::fs::remove_dir_all(&self.0);
+            }
+        }
+        let _cleanup = RemoveDirOnDrop(root.clone());
+
+        super::create_folder(&root, "notes/trip").expect("create nested folder");
+        assert!(
+            root.join("notes").join("trip").is_dir(),
+            "create_folder must create notes/trip under the workspace"
+        );
+
+        let escape = super::create_folder(&root, "../escape");
+        assert!(
+            escape.is_err(),
+            "create_folder(workspace_root, \"../escape\") must be Err, got Ok({:?})",
+            escape.ok()
         );
     }
 
