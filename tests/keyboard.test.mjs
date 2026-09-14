@@ -281,10 +281,8 @@ function collapseAction(pane) {
   );
 }
 
-const EDITOR_THEME_ACTION =
-  /setEditorTheme|setEditorPalette|applyEditorTheme|cycleEditorTheme|#editor-theme/;
-const PREVIEW_THEME_ACTION =
-  /setPreviewTheme|setPreviewPalette|applyPreviewTheme|cyclePreviewTheme|#preview-theme/;
+const THEME_ACTION =
+  /setTheme|cycleTheme|#theme\b/;
 
 function mockClassList() {
   const set = new Set();
@@ -507,8 +505,7 @@ function installRuntimeDom() {
     save: "button",
     find: "button",
     "find-query": "input",
-    "editor-theme": "select",
-    "preview-theme": "select",
+    theme: "select",
     explorer: "aside",
     editor: "main",
     preview: "section",
@@ -528,8 +525,7 @@ function installRuntimeDom() {
     "save",
     "find",
     "find-query",
-    "editor-theme",
-    "preview-theme",
+    "theme",
     "editor-buffer",
     "editor-view",
     "settings",
@@ -538,8 +534,7 @@ function installRuntimeDom() {
   ]) {
     el(id);
   }
-  el("editor-theme").value = "Dark+";
-  el("preview-theme").value = "Dark";
+  el("theme").value = "Tokyo Night";
 
   const doc = {
     documentElement: mockEl("html"),
@@ -1055,35 +1050,24 @@ test("Ctrl+1/2/3 toggle explorer editor preview", async () => {
   );
 });
 
-test("Ctrl+Alt arrows cycle editor theme; Shift cycles preview theme", async () => {
+test("Ctrl+Alt arrows cycle the app theme", async () => {
   const src = joinedSource();
-  const leftEditor = sourceHasShortcut(
+  const leftTheme = sourceHasShortcut(
     src,
     { arrow: "ArrowLeft", alt: true, chord: "Ctrl+Alt+Left" },
-    EDITOR_THEME_ACTION,
+    THEME_ACTION,
   );
-  const rightEditor = sourceHasShortcut(
+  const rightTheme = sourceHasShortcut(
     src,
     { arrow: "ArrowRight", alt: true, chord: "Ctrl+Alt+Right" },
-    EDITOR_THEME_ACTION,
+    THEME_ACTION,
   );
-  const leftPreview = sourceHasShortcut(
-    src,
-    { arrow: "ArrowLeft", alt: true, shift: true, chord: "Ctrl+Alt+Shift+Left" },
-    PREVIEW_THEME_ACTION,
-  );
-  const rightPreview = sourceHasShortcut(
-    src,
-    { arrow: "ArrowRight", alt: true, shift: true, chord: "Ctrl+Alt+Shift+Right" },
-    PREVIEW_THEME_ACTION,
-  );
-  const staticOk = leftEditor && rightEditor && (leftPreview || rightPreview);
+  const staticOk = leftTheme && rightTheme;
   const rt = await loadRuntime();
   const binds = keydownBinds(rt.listeners);
   if (binds.length) {
     const theme = themeState(rt.mods);
-    const editorBefore = theme?.editorTheme ?? rt.el("editor-theme").value;
-    const previewBefore = theme?.previewTheme ?? rt.el("preview-theme").value;
+    const before = theme?.name ?? rt.el("theme").value;
     dispatchKeydown(rt.listeners, {
       key: "ArrowRight",
       code: "ArrowRight",
@@ -1093,8 +1077,7 @@ test("Ctrl+Alt arrows cycle editor theme; Shift cycles preview theme", async () 
       shiftKey: false,
       metaKey: false,
     });
-    const editorAfterRight =
-      themeState(rt.mods)?.editorTheme ?? rt.el("editor-theme").value;
+    const afterRight = themeState(rt.mods)?.name ?? rt.el("theme").value;
     dispatchKeydown(rt.listeners, {
       key: "ArrowLeft",
       code: "ArrowLeft",
@@ -1104,49 +1087,16 @@ test("Ctrl+Alt arrows cycle editor theme; Shift cycles preview theme", async () 
       shiftKey: false,
       metaKey: false,
     });
-    const editorAfterLeft =
-      themeState(rt.mods)?.editorTheme ?? rt.el("editor-theme").value;
-    dispatchKeydown(rt.listeners, {
-      key: "ArrowRight",
-      code: "ArrowRight",
-      keyCode: 39,
-      ctrlKey: true,
-      altKey: true,
-      shiftKey: true,
-      metaKey: false,
-    });
-    const previewAfterRight =
-      themeState(rt.mods)?.previewTheme ?? rt.el("preview-theme").value;
-    dispatchKeydown(rt.listeners, {
-      key: "ArrowLeft",
-      code: "ArrowLeft",
-      keyCode: 37,
-      ctrlKey: true,
-      altKey: true,
-      shiftKey: true,
-      metaKey: false,
-    });
-    const previewAfterLeft =
-      themeState(rt.mods)?.previewTheme ?? rt.el("preview-theme").value;
-    const editorCycled =
-      editorAfterRight !== editorBefore || editorAfterLeft !== editorBefore || editorAfterLeft !== editorAfterRight;
-    const previewCycled =
-      previewAfterRight !== previewBefore ||
-      previewAfterLeft !== previewBefore ||
-      previewAfterLeft !== previewAfterRight;
+    const afterLeft = themeState(rt.mods)?.name ?? rt.el("theme").value;
     assert.ok(
-      editorCycled,
-      "missing Ctrl+Alt+ArrowLeft/ArrowRight shortcut: keydown must cycle editor theme (setEditorTheme)",
-    );
-    assert.ok(
-      previewCycled,
-      "missing Ctrl+Alt+Shift+ArrowLeft/ArrowRight shortcut: keydown with shiftKey must cycle preview theme (setPreviewTheme)",
+      afterRight !== before || afterLeft !== before || afterLeft !== afterRight,
+      "missing Ctrl+Alt+ArrowLeft/ArrowRight shortcut: keydown must cycle setTheme",
     );
     return;
   }
   assert.ok(
     staticOk,
-    "missing Ctrl+Alt+ArrowLeft/ArrowRight shortcut: keydown with ctrlKey+altKey must setEditorTheme; plus shiftKey must setPreviewTheme",
+    "missing Ctrl+Alt+ArrowLeft/ArrowRight shortcut: keydown with ctrlKey+altKey must setTheme",
   );
 });
 
@@ -1166,15 +1116,15 @@ test("Settings keyboard list documents the shortcuts and stays read-only", () =>
     "Ctrl+Alt+Right",
   ];
   const missing = required.filter((chord) => !documentsChord(section, chord));
-  const shiftPreview = /\bShift\b/i.test(section) && /preview/i.test(section);
   assert.equal(
     missing.length,
     0,
     `Settings Keyboard list must document the shortcuts (missing ${missing.join(", ")})`,
   );
-  assert.ok(
-    shiftPreview,
-    "Settings Keyboard list must document Shift for preview theme",
+  assert.match(
+    section,
+    /Cycle theme/i,
+    "Settings Keyboard list must document Cycle theme",
   );
   assert.equal(
     hasRemapInputs(section),
@@ -1192,8 +1142,7 @@ test("explorer editor panes save and themes are reachable from the keyboard", ()
     "editor",
     "preview",
     "save",
-    "editor-theme",
-    "preview-theme",
+    "theme",
   ];
   for (const id of ids) {
     assert.ok(reachable(html, id) || reachable(src, id), `missing keyboard reachability for #${id} (tabindex or native control; no tabindex=-1)`);
@@ -1257,13 +1206,9 @@ test("keyboard theme cycle persists", async () => {
   const files = loadSources();
   const keyboardFile = files.find((f) => /keyboard\.(js|mjs|cjs)$/i.test(f.path));
   const src = keyboardFile?.text || joinedSource(files);
-  const editorBodies = fnBodies(src, "cycleEditorTheme");
-  const previewBodies = fnBodies(src, "cyclePreviewTheme");
+  const themeBodies = fnBodies(src, "cycleTheme");
   const staticOk =
-    editorBodies.length > 0 &&
-    previewBodies.length > 0 &&
-    editorBodies.every(cycleFnPersistsTheme) &&
-    previewBodies.every(cycleFnPersistsTheme);
+    themeBodies.length > 0 && themeBodies.every(cycleFnPersistsTheme);
 
   let runtimeOk = true;
   let ranRuntime = false;
@@ -1300,20 +1245,8 @@ test("keyboard theme cycle persists", async () => {
         shiftKey: false,
         metaKey: false,
       });
-      dispatchKeydown(rt.listeners, {
-        key: "ArrowRight",
-        code: "ArrowRight",
-        keyCode: 39,
-        ctrlKey: true,
-        altKey: true,
-        shiftKey: true,
-        metaKey: false,
-      });
 
-      const editorTheme =
-        rt.el("editor-theme").value || themeState(rt.mods)?.editorTheme;
-      const previewTheme =
-        rt.el("preview-theme").value || themeState(rt.mods)?.previewTheme;
+      const themeName = rt.el("theme").value || themeState(rt.mods)?.name;
 
       const calledWith = (key, value) =>
         persistCalls.some((args) =>
@@ -1331,11 +1264,8 @@ test("keyboard theme cycle persists", async () => {
       }
 
       runtimeOk =
-        (calledWith("editorTheme", editorTheme) &&
-          calledWith("previewTheme", previewTheme)) ||
-        (stored &&
-          stored.editorTheme === editorTheme &&
-          stored.previewTheme === previewTheme);
+        calledWith("theme", themeName) ||
+        (stored && stored.theme === themeName);
     }
   } catch {
     // loadRuntime may already have bound the singleton; static scan still fails.
@@ -1343,12 +1273,12 @@ test("keyboard theme cycle persists", async () => {
 
   assert.ok(
     staticOk,
-    "cycleEditorTheme and cyclePreviewTheme must persistSession(...) or dispatchEvent(\"change\") / new Event(\"change\") after setting select.value",
+    "cycleTheme must persistSession(...) or dispatchEvent(\"change\") / new Event(\"change\") after setting select.value",
   );
   if (ranRuntime) {
     assert.ok(
       runtimeOk,
-      "Ctrl+Alt+ArrowRight and Ctrl+Alt+Shift+ArrowRight must persist the new editorTheme/previewTheme via persistSession or localStorage lightmd.session",
+      "Ctrl+Alt+ArrowRight must persist the new theme via persistSession or localStorage lightmd.session",
     );
   }
 });

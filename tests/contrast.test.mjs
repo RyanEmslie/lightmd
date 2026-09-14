@@ -8,16 +8,7 @@ import { palettes } from "../src/palettes.js";
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const srcDir = join(root, "src");
 
-const PALETTE_NAMES = [
-  "Light",
-  "Dark",
-  "High Contrast Light",
-  "High Contrast Dark",
-  "Dark+",
-  "Solarized Light",
-  "Solarized Dark",
-  "Monokai",
-];
+const PALETTE_NAMES = Object.keys(palettes);
 
 const CONTRAST_EXPORTS = ["contrastRatio", "contrast", "getContrastRatio"];
 
@@ -72,26 +63,26 @@ test("every palette --fg on --bg is at least 4.5:1", async () => {
   }
 });
 
-test("High Contrast Light contrast is greater than Light", async () => {
+test("High Contrast Light contrast is greater than Absolutely Light", async () => {
   const contrastRatio = await loadContrastRatio();
   const hc = palettes["High Contrast Light"];
-  const light = palettes.Light;
-  assert.ok(hc && light, "Light and High Contrast Light palettes must exist");
+  const light = palettes["Absolutely Light"];
+  assert.ok(hc && light, "Absolutely Light and High Contrast Light palettes must exist");
   assert.ok(
     contrastRatio(hc["--fg"], hc["--bg"]) >
       contrastRatio(light["--fg"], light["--bg"]),
-    "High Contrast Light --fg on --bg must exceed Light --fg on --bg",
+    "High Contrast Light --fg on --bg must exceed Absolutely Light --fg on --bg",
   );
 });
 
-test("High Contrast Dark contrast is greater than Dark", async () => {
+test("High Contrast Dark contrast is greater than Codex Dark", async () => {
   const contrastRatio = await loadContrastRatio();
   const hc = palettes["High Contrast Dark"];
-  const dark = palettes.Dark;
-  assert.ok(hc && dark, "Dark and High Contrast Dark palettes must exist");
+  const dark = palettes["Codex Dark"];
+  assert.ok(hc && dark, "Codex Dark and High Contrast Dark palettes must exist");
   assert.ok(
     contrastRatio(hc["--fg"], hc["--bg"]) >
       contrastRatio(dark["--fg"], dark["--bg"]),
-    "High Contrast Dark --fg on --bg must exceed Dark --fg on --bg",
+    "High Contrast Dark --fg on --bg must exceed Codex Dark --fg on --bg",
   );
 });

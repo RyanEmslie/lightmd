@@ -6,7 +6,7 @@ import { test } from "node:test";
 import {
   applyTheme,
   palettes,
-  setPreviewTheme,
+  setTheme,
   theme,
 } from "../src/palettes.js";
 import { collectFiles } from "./helpers/source.mjs";
@@ -17,16 +17,7 @@ const INDEX_HTML = join(srcDir, "index.html");
 const PALETTES_JS = join(srcDir, "palettes.js");
 const PKG_PATH = join(root, "package.json");
 
-const PALETTE_NAMES = [
-  "Light",
-  "Dark",
-  "High Contrast Light",
-  "High Contrast Dark",
-  "Dark+",
-  "Solarized Light",
-  "Solarized Dark",
-  "Monokai",
-];
+const PALETTE_NAMES = Object.keys(palettes);
 
 const CHROME_TOKENS = [
   "--bg",
@@ -169,6 +160,7 @@ function cssVar(el, name) {
 
 function previewToken(doc, name) {
   return (
+    cssVar(doc.documentElement, name) ||
     cssVar(doc.getElementById("preview"), name) ||
     cssVar(doc.getElementById("preview-body"), name)
   );
@@ -176,21 +168,12 @@ function previewToken(doc, name) {
 
 function withThemeFixture(run) {
   const prevDoc = globalThis.document;
-  const prevTheme = {
-    editorTheme: theme.editorTheme,
-    previewTheme: theme.previewTheme,
-    chromeFollowsEditor: theme.chromeFollowsEditor,
-    chromeTheme: theme.chromeTheme,
-  };
+  const prevName = theme.name;
   const doc = installDocument();
   try {
     return run(doc);
   } finally {
-    theme.editorTheme = prevTheme.editorTheme;
-    theme.previewTheme = prevTheme.previewTheme;
-    theme.chromeFollowsEditor = prevTheme.chromeFollowsEditor;
-    if (prevTheme.chromeTheme === undefined) delete theme.chromeTheme;
-    else theme.chromeTheme = prevTheme.chromeTheme;
+    theme.name = prevName;
     globalThis.document = prevDoc;
   }
 }
@@ -260,8 +243,8 @@ test("preview CSS maps #preview-body h1/h2/h3, a, and code/pre to heading/link/c
   );
 });
 
-test("Monokai and Solarized Light --h1/--h2/--fg are distinct after applyTheme/setPreviewTheme", () => {
-  assert.equal(typeof setPreviewTheme, "function");
+test("Monokai and Solarized Light --h1/--h2/--fg are distinct after applyTheme/setTheme", () => {
+  assert.equal(typeof setTheme, "function");
   assert.equal(typeof applyTheme, "function");
 
   for (const name of DISTINCT_THEMES) {
@@ -281,7 +264,7 @@ test("Monokai and Solarized Light --h1/--h2/--fg are distinct after applyTheme/s
 
   withThemeFixture((doc) => {
     for (const name of DISTINCT_THEMES) {
-      setPreviewTheme(name);
+      setTheme(name);
       applyTheme();
       const h1 = previewToken(doc, "--h1");
       const h2 = previewToken(doc, "--h2");
@@ -289,17 +272,17 @@ test("Monokai and Solarized Light --h1/--h2/--fg are distinct after applyTheme/s
       assert.equal(
         h1,
         palettes[name]["--h1"],
-        `setPreviewTheme(${JSON.stringify(name)}) must paint preview --h1 from the palette`,
+        `setTheme(${JSON.stringify(name)}) must paint preview --h1 from the palette`,
       );
       assert.equal(
         h2,
         palettes[name]["--h2"],
-        `setPreviewTheme(${JSON.stringify(name)}) must paint preview --h2 from the palette`,
+        `setTheme(${JSON.stringify(name)}) must paint preview --h2 from the palette`,
       );
       assert.equal(
         fg,
         palettes[name]["--fg"],
-        `setPreviewTheme(${JSON.stringify(name)}) must paint preview --fg from the palette`,
+        `setTheme(${JSON.stringify(name)}) must paint preview --fg from the palette`,
       );
       assert.notEqual(h1, h2, `${name} applied --h1 must differ from --h2`);
       assert.notEqual(h1, fg, `${name} applied --h1 must differ from --fg`);
@@ -308,13 +291,13 @@ test("Monokai and Solarized Light --h1/--h2/--fg are distinct after applyTheme/s
   });
 });
 
-test("switching previewTheme changes --h1/--link/--code, not only --bg", () => {
-  assert.equal(typeof setPreviewTheme, "function");
+test("switching theme changes --h1/--link/--code, not only --bg", () => {
+  assert.equal(typeof setTheme, "function");
   assert.equal(typeof applyTheme, "function");
   assert.ok(palettes.Monokai && palettes["Solarized Light"]);
 
   withThemeFixture((doc) => {
-    setPreviewTheme("Monokai");
+    setTheme("Monokai");
     applyTheme();
     const before = {
       bg: previewToken(doc, "--bg"),
@@ -324,7 +307,7 @@ test("switching previewTheme changes --h1/--link/--code, not only --bg", () => {
     };
     assert.equal(before.bg, palettes.Monokai["--bg"]);
 
-    setPreviewTheme("Solarized Light");
+    setTheme("Solarized Light");
     applyTheme();
     const after = {
       bg: previewToken(doc, "--bg"),
@@ -344,7 +327,7 @@ test("switching previewTheme changes --h1/--link/--code, not only --bg", () => {
     );
     assert.ok(
       changed.length > 0,
-      `switching previewTheme from Monokai to Solarized Light must change at least one of --h1/--link/--code, not only --bg (before=${JSON.stringify(before)} after=${JSON.stringify(after)})`,
+      `switching theme from Monokai to Solarized Light must change at least one of --h1/--link/--code, not only --bg (before=${JSON.stringify(before)} after=${JSON.stringify(after)})`,
     );
   });
 });
@@ -370,12 +353,12 @@ test("existing seven chrome tokens remain on every shipped palette", () => {
   );
 
   withThemeFixture((doc) => {
-    setPreviewTheme("Dark");
+    setTheme("Codex Dark");
     applyTheme();
     for (const token of CHROME_TOKENS) {
       assert.equal(
         previewToken(doc, token),
-        palettes.Dark[token],
+        palettes["Codex Dark"][token],
         `applyTheme must still paint preview ${token} from the 7 chrome tokens`,
       );
     }

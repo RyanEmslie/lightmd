@@ -306,15 +306,11 @@ function extraWidgetsOnStrip(src) {
 }
 
 function themeSelectorsInChrome(src) {
-  const editorChrome = taggedById(src, "editor-chrome");
-  const previewChrome = taggedById(src, "preview-chrome");
-  const editor =
-    (editorChrome && /id=["']editor[-_]?theme["']/i.test(editorChrome.full)) ||
-    /id=["']editor[-_]?theme["']/i.test(src);
-  const preview =
-    (previewChrome && /id=["']preview[-_]?theme["']/i.test(previewChrome.full)) ||
-    /id=["']preview[-_]?theme["']/i.test(src);
-  return editor && preview;
+  const layoutBar = taggedById(src, "layout-bar");
+  return (
+    (layoutBar && /id=["']theme["']/i.test(layoutBar.full)) ||
+    /id=["']theme["']/i.test(src)
+  );
 }
 
 function themeSelectorsOnStrip(src) {

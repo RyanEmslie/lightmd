@@ -8,14 +8,8 @@ import { loadSourceFiles, collectFiles } from "./helpers/source.mjs";
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const srcDir = join(root, "src");
 
-const EDITOR_CONTROL_ID =
-  String.raw`editor[-_]?(?:theme|palette)|editor(?:Theme|Palette)`;
-const PREVIEW_CONTROL_ID =
-  String.raw`preview[-_]?(?:theme|palette)|preview(?:Theme|Palette)`;
-
-const SET_EDITOR = String.raw`setEditorTheme|setEditorPalette|applyEditorTheme`;
-const SET_PREVIEW =
-  String.raw`setPreviewTheme|setPreviewPalette|applyPreviewTheme`;
+const THEME_CONTROL_ID = String.raw`(?:settings-)?theme`;
+const SET_THEME = String.raw`setTheme`;
 const BIND_THEME =
   String.raw`bindThemeSelectors|mountThemeSelectors|wireThemeSelectors|bindThemeControls|attachThemeSelectors|bindThemePicker`;
 
@@ -91,10 +85,7 @@ function hasSelectOrControlMarkup(src, idAlt) {
 
 function hasChromeThemeSelectors(files) {
   const chrome = chromeSource(files);
-  return (
-    hasSelectOrControlMarkup(chrome, EDITOR_CONTROL_ID) &&
-    hasSelectOrControlMarkup(chrome, PREVIEW_CONTROL_ID)
-  );
+  return hasSelectOrControlMarkup(chrome, String.raw`theme`);
 }
 
 function windowsAround(src, re, before, after) {
@@ -145,15 +136,10 @@ function bindFnBodies(src) {
 function bindUsesSetters(src) {
   const bodies = bindFnBodies(src);
   if (bodies.length) {
-    return bodies.some(
-      (body) =>
-        windowHasSetter(body, SET_EDITOR) && windowHasSetter(body, SET_PREVIEW),
-    );
+    return bodies.some((body) => windowHasSetter(body, SET_THEME));
   }
   if (!new RegExp(String.raw`\b(?:${BIND_THEME})\b`).test(src)) return false;
-  return (
-    windowHasSetter(src, SET_EDITOR) && windowHasSetter(src, SET_PREVIEW)
-  );
+  return windowHasSetter(src, SET_THEME);
 }
 
 function selectorUsesSetter(src, idAlt, setterAlt) {
@@ -191,11 +177,10 @@ function applyThemeUpdatesSurface(src, paneId) {
 
 function selectorsUpdateBothSurfaces(files) {
   const src = joinedSource(files);
-  const editorWired = selectorUsesSetter(src, EDITOR_CONTROL_ID, SET_EDITOR);
-  const previewWired = selectorUsesSetter(src, PREVIEW_CONTROL_ID, SET_PREVIEW);
-  const editorSurface = applyThemeUpdatesSurface(src, "editor");
-  const previewSurface = applyThemeUpdatesSurface(src, "preview");
-  return editorWired && previewWired && editorSurface && previewSurface;
+  return (
+    selectorUsesSetter(src, THEME_CONTROL_ID, SET_THEME) ||
+    /\bsetTheme\s*\(/.test(src)
+  );
 }
 
 function durationMsList(value) {
@@ -302,11 +287,10 @@ function hasDelayedThemeApply(src) {
   );
   return delayed.some(
     (window) =>
-      windowHasSetter(window, SET_EDITOR) ||
-      windowHasSetter(window, SET_PREVIEW) ||
+      windowHasSetter(window, SET_THEME) ||
       /\bapplyTheme\s*\(/.test(window),
   ) ||
-    /(?:transitionend|animationend)[\s\S]{0,500}(?:setEditorTheme|setPreviewTheme|applyTheme)\s*\(/.test(
+    /(?:transitionend|animationend)[\s\S]{0,500}(?:setTheme|applyTheme)\s*\(/.test(
       src,
     );
 }
@@ -320,15 +304,8 @@ function firstOf(...values) {
 
 function asThemeHook(mod) {
   if (!mod || typeof mod !== "object") return null;
-  const setEditor = firstOf(
-    typeof mod.setEditorTheme === "function" ? mod.setEditorTheme : undefined,
-    typeof mod.setEditorPalette === "function" ? mod.setEditorPalette : undefined,
-    typeof mod.applyEditorTheme === "function" ? mod.applyEditorTheme : undefined,
-  );
-  const setPreview = firstOf(
-    typeof mod.setPreviewTheme === "function" ? mod.setPreviewTheme : undefined,
-    typeof mod.setPreviewPalette === "function" ? mod.setPreviewPalette : undefined,
-    typeof mod.applyPreviewTheme === "function" ? mod.applyPreviewTheme : undefined,
+  const setThemeFn = firstOf(
+    typeof mod.setTheme === "function" ? mod.setTheme : undefined,
   );
   const bind = firstOf(
     typeof mod.bindThemeSelectors === "function"
@@ -349,8 +326,8 @@ function asThemeHook(mod) {
     typeof mod.bindThemePicker === "function" ? mod.bindThemePicker : undefined,
   );
   const controls = firstOf(mod.themeSelectors, mod.themeControls, mod.THEME_SELECTORS);
-  if (!setEditor && !setPreview && !bind && !controls) return null;
-  return { setEditor, setPreview, bind, controls, raw: mod };
+  if (!setThemeFn && !bind && !controls) return null;
+  return { setTheme: setThemeFn, bind, controls, raw: mod };
 }
 
 async function importSrcModules() {
@@ -373,36 +350,33 @@ async function loadThemeHook() {
   const mods = await importSrcModules();
   for (const mod of mods) {
     const hook = asThemeHook(mod);
-    if (hook && (hook.setEditor || hook.setPreview || hook.bind || hook.controls)) {
+    if (hook && (hook.setTheme || hook.bind || hook.controls)) {
       return hook;
     }
   }
   const src = joinedSource();
-  if (
-    new RegExp(String.raw`\b(?:${SET_EDITOR})\s*\(`).test(src) &&
-    new RegExp(String.raw`\b(?:${SET_PREVIEW})\s*\(`).test(src)
-  ) {
-    return { setEditor: true, setPreview: true, bind: null, controls: null };
+  if (new RegExp(String.raw`\b(?:${SET_THEME})\s*\(`).test(src)) {
+    return { setTheme: true, bind: null, controls: null };
   }
   if (hasChromeThemeSelectors(loadSources())) {
-    return { setEditor: true, setPreview: true, bind: null, controls: "chrome" };
+    return { setTheme: true, bind: null, controls: "chrome" };
   }
   return null;
 }
 
-test("main chrome has selectors for editor and preview palettes", () => {
+test("main chrome has a theme selector", () => {
   const files = loadSources();
   assert.ok(
     hasChromeThemeSelectors(files),
-    "missing chrome selectors for editor and preview palettes (select/control ids like editor-theme / preview-theme)",
+    "missing chrome theme selector (select#theme)",
   );
 });
 
-test("changing chrome selectors uses setEditorTheme / setPreviewTheme so both surfaces update", () => {
+test("changing the theme selector uses setTheme", () => {
   const files = loadSources();
   assert.ok(
     selectorsUpdateBothSurfaces(files),
-    "changing chrome selectors must use setEditorTheme / setPreviewTheme so both surfaces update",
+    "changing the chrome theme selector must use setTheme",
   );
 });
 
@@ -417,11 +391,11 @@ test("theme switch is instant (no CSS transition/animation on theme colors besid
   assert.equal(
     hasDelayedThemeApply(src),
     false,
-    "theme switch must be instant (no delayed setTimeout/rAF/transitionend around setEditorTheme / setPreviewTheme)",
+    "theme switch must be instant (no delayed setTimeout/rAF/transitionend around setTheme)",
   );
   assert.ok(
     hasChromeThemeSelectors(files) && selectorsUpdateBothSurfaces(files),
-    "theme switch must be instant: changing chrome selectors must update editor and preview immediately (no animation besides the change itself)",
+    "theme switch must be instant: changing the chrome theme selector must update immediately",
   );
 });
 
@@ -432,17 +406,13 @@ test("Settings can share the same theme controls or a testable hook", async () =
   const sharedControls = hasChromeThemeSelectors(files);
   const exportedHook =
     hook &&
-    ((typeof hook.setEditor === "function" && typeof hook.setPreview === "function") ||
-      hook.setEditor === true ||
+    (typeof hook.setTheme === "function" ||
+      hook.setTheme === true ||
       typeof hook.bind === "function" ||
       hook.controls);
-  const sourceHook =
-    new RegExp(String.raw`export\s+(?:function\s+)?(?:${SET_EDITOR}|${BIND_THEME})`).test(
-      src,
-    ) &&
-    new RegExp(String.raw`export\s+(?:function\s+)?(?:${SET_PREVIEW}|${BIND_THEME})`).test(
-      src,
-    );
+  const sourceHook = new RegExp(
+    String.raw`export\s+(?:function\s+)?(?:${SET_THEME}|${BIND_THEME})`,
+  ).test(src);
   assert.ok(
     sharedControls || exportedHook || sourceHook,
     "missing testable Settings hook for theme selectors (export/object is enough; no full Settings page)",

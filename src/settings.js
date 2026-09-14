@@ -1,10 +1,7 @@
 import {
   palettes,
   theme,
-  setEditorTheme,
-  setPreviewTheme,
-  applyTheme,
-  setChromeFollowsEditor,
+  setTheme,
 } from "./palettes.js";
 import { autosave, cancelAutosave } from "./autosave.js";
 import { session, persistSession } from "./session.js";
@@ -16,10 +13,7 @@ import { layout, persistLayout } from "./layout.js";
 export {
   palettes,
   theme,
-  setEditorTheme,
-  setPreviewTheme,
-  applyTheme,
-  setChromeFollowsEditor,
+  setTheme,
 };
 
 export const editorDefaults = {
@@ -39,8 +33,7 @@ export const previewDefaults = {
 };
 
 export const defaults = {
-  editorTheme: "Dark+",
-  previewTheme: "Dark",
+  theme: "Tokyo Night",
   wrap: true,
   lineWrapping: true,
   lineNumbers: false,
@@ -49,7 +42,6 @@ export const defaults = {
   autosave: true,
   sessionRestore: true,
   htmlJs: false,
-  chromeFollowsEditor: true,
 };
 
 function doc() {
@@ -80,27 +72,6 @@ export function toggleSettings() {
   panel.hidden = !panel.hidden;
 }
 
-function setChromeMode(value) {
-  if (value === "light") {
-    theme.chromeFollowsEditor = false;
-    theme.chromeTheme = "Light";
-  } else if (value === "dark") {
-    theme.chromeFollowsEditor = false;
-    theme.chromeTheme = "Dark";
-  } else {
-    theme.chromeFollowsEditor = true;
-  }
-  applyTheme();
-}
-
-function chromeModeValue() {
-  if (theme.chromeFollowsEditor) return "follow";
-  const shell = String(theme.chromeTheme || "").toLowerCase();
-  if (shell === "light") return "light";
-  if (shell === "dark") return "dark";
-  return "follow";
-}
-
 function applyPreviewFont() {
   const d = doc();
   const el = d && d.getElementById("preview-body");
@@ -116,14 +87,16 @@ function paletteNames() {
 function fillThemeSelect(select, selected) {
   if (!select) return;
   const names = paletteNames();
-  if (!select.options || select.options.length === 0) {
-    for (const name of names) {
-      const opt = doc().createElement("option");
-      opt.value = name;
-      opt.textContent = name;
-      if (name === selected) opt.selected = true;
-      select.append(opt);
-    }
+  if (typeof select.replaceChildren === "function") select.replaceChildren();
+  else if ("innerHTML" in select) select.innerHTML = "";
+  else if (Array.isArray(select.children)) select.children.length = 0;
+  for (const name of names) {
+    const opt = doc().createElement("option");
+    opt.value = name;
+    opt.textContent = name;
+    if (name === selected) opt.selected = true;
+    if (typeof select.append === "function") select.append(opt);
+    else if (typeof select.appendChild === "function") select.appendChild(opt);
   }
   if (typeof selected === "string") select.value = selected;
 }
@@ -131,14 +104,15 @@ function fillThemeSelect(select, selected) {
 function syncThemeSelects() {
   const d = doc();
   if (!d) return;
-  const editorChrome = d.getElementById("editor-theme");
-  const previewChrome = d.getElementById("preview-theme");
-  const editorSettings = d.getElementById("settings-editor-theme");
-  const previewSettings = d.getElementById("settings-preview-theme");
-  fillThemeSelect(editorSettings, theme.editorTheme);
-  fillThemeSelect(previewSettings, theme.previewTheme);
-  if (editorChrome && editorSettings) editorSettings.value = editorChrome.value || theme.editorTheme;
-  if (previewChrome && previewSettings) previewSettings.value = previewChrome.value || theme.previewTheme;
+  const chrome = d.getElementById("theme");
+  const settingsTheme = d.getElementById("settings-theme");
+  fillThemeSelect(chrome, theme.name);
+  fillThemeSelect(settingsTheme, theme.name);
+  if (chrome && settingsTheme) {
+    const value = chrome.value || theme.name;
+    chrome.value = value;
+    settingsTheme.value = value;
+  }
 }
 
 function syncWorkspaceControls() {
@@ -161,8 +135,6 @@ function syncHtmlJsControl() {
 function syncFromState() {
   const d = doc();
   if (!d || typeof d.getElementById !== "function") return;
-  const chrome = d.getElementById("chrome-mode");
-  if (chrome) chrome.value = chromeModeValue();
   const editorSize = d.getElementById("editor-font-size");
   if (editorSize) editorSize.value = String(editorDefaults.fontSize);
   const editorLh = d.getElementById("editor-line-height");
@@ -228,31 +200,19 @@ export function bindSettings() {
     closeSettings();
   });
 
-  on(d.getElementById("chrome-mode"), "change", (event) => {
-    setChromeMode(event.target.value);
-  });
-
-  const editorTheme = d.getElementById("settings-editor-theme");
-  on(editorTheme, "change", (event) => {
-    const value = event.target.value;
-    setEditorTheme(value);
-    persistSession({ editorTheme: value });
-    const chrome = d.getElementById("editor-theme");
+  function applyNamedTheme(value) {
+    setTheme(value);
+    persistSession({ theme: value });
+    const chrome = d.getElementById("theme");
+    const settingsTheme = d.getElementById("settings-theme");
     if (chrome) chrome.value = value;
+    if (settingsTheme) settingsTheme.value = value;
+  }
+  on(d.getElementById("settings-theme"), "change", (event) => {
+    applyNamedTheme(event.target.value);
   });
-  const previewTheme = d.getElementById("settings-preview-theme");
-  on(previewTheme, "change", (event) => {
-    const value = event.target.value;
-    setPreviewTheme(value);
-    persistSession({ previewTheme: value });
-    const chrome = d.getElementById("preview-theme");
-    if (chrome) chrome.value = value;
-  });
-  on(d.getElementById("editor-theme"), "change", (event) => {
-    if (editorTheme) editorTheme.value = event.target.value;
-  });
-  on(d.getElementById("preview-theme"), "change", (event) => {
-    if (previewTheme) previewTheme.value = event.target.value;
+  on(d.getElementById("theme"), "change", (event) => {
+    applyNamedTheme(event.target.value);
   });
 
   on(d.getElementById("editor-font-size"), "change", (event) => {

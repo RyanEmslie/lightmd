@@ -291,6 +291,7 @@ function looksLikeSessionShape(value) {
     "lastFolder" in value ||
     "lastFile" in value ||
     "folder" in value ||
+    "theme" in value ||
     "editorTheme" in value ||
     "htmlJs" in value ||
     "htmlJsEnabled" in value ||
@@ -458,19 +459,13 @@ function normalizeSession(value) {
     src.openFile,
     src.fileRelative,
   );
-  const editorTheme = firstOf(
+  const themeName = firstOf(
+    typeof src.theme === "string" ? src.theme : undefined,
+    src.theme?.name,
     src.editorTheme,
     src.editorPalette,
-    src.editor,
-    src.theme?.editorTheme,
-    src.theme?.editor,
-  );
-  const previewTheme = firstOf(
     src.previewTheme,
     src.previewPalette,
-    src.preview,
-    src.theme?.previewTheme,
-    src.theme?.preview,
   );
   const htmlJs = firstOf(
     htmlJsEnabled(src.htmlJs),
@@ -483,13 +478,12 @@ function normalizeSession(value) {
   if (
     lastFolder === undefined &&
     lastFile === undefined &&
-    editorTheme === undefined &&
-    previewTheme === undefined &&
+    themeName === undefined &&
     htmlJs === undefined
   ) {
     return null;
   }
-  return { lastFolder, lastFile, editorTheme, previewTheme, htmlJs, raw: src };
+  return { lastFolder, lastFile, theme: themeName, htmlJs, raw: src };
 }
 
 function readSession(api, restored) {
@@ -520,11 +514,8 @@ async function callPersist(api, snapshot) {
   if (typeof api.raw.openFile === "function") {
     await api.raw.openFile(snapshot.lastFile);
   }
-  if (typeof api.raw.setEditorTheme === "function") {
-    api.raw.setEditorTheme(snapshot.editorTheme);
-  }
-  if (typeof api.raw.setPreviewTheme === "function") {
-    api.raw.setPreviewTheme(snapshot.previewTheme);
+  if (typeof api.raw.setTheme === "function") {
+    api.raw.setTheme(snapshot.theme);
   }
   if (typeof api.raw.setHtmlJsEnabled === "function") {
     api.raw.setHtmlJsEnabled(snapshot.htmlJs);
@@ -537,8 +528,7 @@ async function callPersist(api, snapshot) {
       api.persist({
         folder: snapshot.lastFolder,
         file: snapshot.lastFile,
-        editorTheme: snapshot.editorTheme,
-        previewTheme: snapshot.previewTheme,
+        theme: snapshot.theme,
         htmlJsEnabled: snapshot.htmlJs,
       }),
     () => api.persist(snapshot.lastFolder, snapshot.lastFile),
@@ -583,8 +573,7 @@ function sampleSnapshot() {
   return {
     lastFolder: workspaceDir,
     lastFile: "note.md",
-    editorTheme: "Monokai",
-    previewTheme: "Solarized Light",
+    theme: "Monokai",
     htmlJs: true,
   };
 }
@@ -630,12 +619,8 @@ function assertRestoredSnapshot(state, snapshot, message) {
     `${message} (last file)`,
   );
   assert.ok(
-    sameTheme(state.editorTheme, snapshot.editorTheme),
-    `${message} (editor theme)`,
-  );
-  assert.ok(
-    sameTheme(state.previewTheme, snapshot.previewTheme),
-    `${message} (preview theme)`,
+    sameTheme(state.theme, snapshot.theme),
+    `${message} (theme)`,
   );
   assert.equal(state.htmlJs, snapshot.htmlJs, `${message} (HTML JS preference)`);
 }
@@ -650,7 +635,7 @@ test("relaunch restores last folder, last file, themes, and HTML JS", async () =
       loaded.api &&
         typeof loaded.api.persist === "function" &&
         typeof loaded.api.restore === "function",
-      "missing session restore (persist/restore exports); relaunch must restore last folder, last file, editor theme, preview theme, and HTML JS preference",
+      "missing session restore (persist/restore exports); relaunch must restore last folder, last file, theme, and HTML JS preference",
     );
     const snapshot = sampleSnapshot();
     await callPersist(loaded.api, snapshot);
@@ -661,7 +646,7 @@ test("relaunch restores last folder, last file, themes, and HTML JS", async () =
     assertRestoredSnapshot(
       state,
       snapshot,
-      "after opening a folder+file, setting editor/preview themes and HTML JS, and quitting, relaunch must restore last folder, last file, editor theme, preview theme, and HTML JS preference",
+      "after opening a folder+file, setting theme and HTML JS, and quitting, relaunch must restore last folder, last file, theme, and HTML JS preference",
     );
   } finally {
     globalThis.document = prevDoc;
@@ -773,8 +758,7 @@ test("restored paths stay confined to the workspace", async () => {
     await callPersist(loaded.api, {
       lastFolder: workspaceDir,
       lastFile: "../outside.md",
-      editorTheme: "Monokai",
-      previewTheme: "Solarized Light",
+      theme: "Monokai",
       htmlJs: false,
     });
     const relaunched = await relaunch(loaded.filePath, storage);

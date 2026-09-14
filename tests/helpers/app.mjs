@@ -27,6 +27,8 @@ const DEFAULT_TAGS = {
   "find-workspace-status": "span",
   "find-workspace-results": "ul",
   "editor-tabs": "div",
+  theme: "select",
+  "settings-theme": "select",
 };
 
 export function bootApp(options = {}) {

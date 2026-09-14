@@ -634,7 +634,9 @@ function labeledCheckbox(blob, labelRe) {
 
 function selectedTheme(blob, which) {
   const idAlt =
-    which === "editor"
+    which === "theme"
+      ? String.raw`(?:settings[-_]?)?theme`
+      : which === "editor"
       ? String.raw`(?:settings[-_]?)?editor[-_]?(?:theme|palette)`
       : String.raw`(?:settings[-_]?)?preview[-_]?(?:theme|palette)`;
   const windows = windowsAround(
@@ -680,8 +682,7 @@ function defaultsFromBlob(blob) {
   const sessionBox = labeledCheckbox(blob, /session\s+restore/i);
   const htmlBox = labeledCheckbox(blob, /html\s*js|java\s*script/i);
   return {
-    editorTheme: selectedTheme(blob, "editor"),
-    previewTheme: selectedTheme(blob, "preview"),
+    theme: selectedTheme(blob, "theme"),
     wrap: firstOf(
       wrapBox,
       boolFrom(blob, [
@@ -731,6 +732,14 @@ function pickFromObject(value, keys) {
   return undefined;
 }
 
+function asThemeName(value) {
+  if (typeof value === "string") return value;
+  if (value && typeof value === "object" && typeof value.name === "string") {
+    return value.name;
+  }
+  return undefined;
+}
+
 function flattenSettingsDefaults(mod) {
   if (!mod || typeof mod !== "object") return null;
   const roots = [
@@ -744,15 +753,10 @@ function flattenSettingsDefaults(mod) {
     mod.config,
   ].filter((v) => v && typeof v === "object");
   for (const rootObj of roots) {
-    const editor = firstOf(
-      pickFromObject(rootObj, ["editorTheme", "editorPalette", "EDITOR_THEME"]),
-      pickFromObject(rootObj.editor, ["theme", "palette", "editorTheme"]),
-      pickFromObject(rootObj.appearance, ["editorTheme", "editor"]),
-    );
-    const preview = firstOf(
-      pickFromObject(rootObj, ["previewTheme", "previewPalette", "PREVIEW_THEME"]),
-      pickFromObject(rootObj.preview, ["theme", "palette", "previewTheme"]),
-      pickFromObject(rootObj.appearance, ["previewTheme", "preview"]),
+    const themeName = firstOf(
+      asThemeName(pickFromObject(rootObj, ["theme", "THEME"])),
+      asThemeName(pickFromObject(rootObj.appearance, ["theme"])),
+      asThemeName(pickFromObject(rootObj, ["editorTheme", "editorPalette", "EDITOR_THEME"])),
     );
     const wrap = firstOf(
       asBool(rootObj.wrap),
@@ -798,8 +802,7 @@ function flattenSettingsDefaults(mod) {
       asBool(rootObj.htmlJs?.enabled),
     );
     const found = {
-      editorTheme: editor,
-      previewTheme: preview,
+      theme: themeName,
       wrap,
       lineNumbers,
       livePreview,
@@ -880,14 +883,9 @@ test("defaults match PRD section 11", async () => {
   const fromBlob = defaultsFromBlob(opened.blob);
   const defaults = mergeDefaults(fromMod, fromBlob);
   assert.equal(
-    defaults.editorTheme,
-    "Dark+",
-    "default editor theme must be Dark+",
-  );
-  assert.equal(
-    defaults.previewTheme,
-    "Dark",
-    "default preview theme must be Dark",
+    defaults.theme,
+    "Tokyo Night",
+    "default theme must be Tokyo Night",
   );
   assert.equal(defaults.wrap, true, "wrap must default on");
   assert.equal(defaults.lineNumbers, false, "line numbers must default off");
@@ -908,16 +906,21 @@ test("no account section", () => {
   );
 });
 
-test("chrome follows editor or fixed light/dark shell, plus editor and preview font size and line height controls", () => {
+test("Appearance has one theme selector plus editor and preview font size and line height controls", () => {
   const opened = openingSettings();
   assertOpensSettings(opened);
   assert.ok(
     hasGroup(opened.blob, GROUPS[0]),
-    "Appearance group is required for chrome and font controls",
+    "Appearance group is required for theme and font controls",
   );
   assert.ok(
+    hasControlFor(opened.blob, String.raw`(?:settings[-_]?)?theme`),
+    "Appearance must include a single theme selector",
+  );
+  assert.equal(
     hasChromeModeControls(opened.blob),
-    "Appearance must include chrome-follows-editor vs fixed light/dark shell",
+    false,
+    "Appearance must not keep chrome-follows-editor / light / dark shell controls",
   );
   assert.ok(
     hasFontSizeAndLineHeightControls(opened.blob),

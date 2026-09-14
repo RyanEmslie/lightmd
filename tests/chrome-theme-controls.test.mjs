@@ -6,16 +6,14 @@ import { test } from "node:test";
 import {
   applyTheme,
   palettes,
-  setChromeFollowsEditor,
-  setEditorTheme,
-  setPreviewTheme,
+  setTheme,
   theme,
 } from "../src/palettes.js";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const INDEX_HTML = join(root, "src", "index.html");
 
-const REFERENCE_CONTROLS = ["editor-theme", "preview-theme"];
+const REFERENCE_CONTROLS = ["theme"];
 const UNTHEMED_CONTROLS = [
   "pane-layout",
   "pane-order",
@@ -159,21 +157,12 @@ function cssVar(el, name) {
 
 function withThemeFixture(run) {
   const prevDoc = globalThis.document;
-  const prevTheme = {
-    editorTheme: theme.editorTheme,
-    previewTheme: theme.previewTheme,
-    chromeFollowsEditor: theme.chromeFollowsEditor,
-    chromeTheme: theme.chromeTheme,
-  };
+  const prevName = theme.name;
   const doc = installDocument();
   try {
     return run(doc);
   } finally {
-    theme.editorTheme = prevTheme.editorTheme;
-    theme.previewTheme = prevTheme.previewTheme;
-    theme.chromeFollowsEditor = prevTheme.chromeFollowsEditor;
-    if (prevTheme.chromeTheme === undefined) delete theme.chromeTheme;
-    else theme.chromeTheme = prevTheme.chromeTheme;
+    theme.name = prevName;
     globalThis.document = prevDoc;
   }
 }
@@ -208,52 +197,53 @@ test("layout, sort, and find controls use chrome theme tokens", () => {
     assert.equal(
       report.ok,
       true,
-      `#${id} is the reference pattern (#editor-theme / settings inputs) and must keep color/background/border theme tokens: missing ${report.missing.join(", ")}`,
+      `#${id} is the reference pattern (#theme / settings inputs) and must keep color/background/border theme tokens: missing ${report.missing.join(", ")}`,
     );
   }
   const failures = missingTokenFailures(rules, UNTHEMED_CONTROLS);
   assert.equal(
     failures.length,
     0,
-    `#pane-layout, #pane-order, #explorer-sort, and #find-query must use theme tokens --bg or --bg-elevated, --fg, and --border for background/color/border (same pattern as #editor-theme / settings inputs). ${failures.join("; ")}`,
+    `#pane-layout, #pane-order, #explorer-sort, and #find-query must use theme tokens --bg or --bg-elevated, --fg, and --border for background/color/border (same pattern as #theme / settings inputs). ${failures.join("; ")}`,
   );
 });
 
-test("chromeFollowsEditor light editor theme updates documentElement vars and control rules use them", () => {
-  assert.equal(typeof setChromeFollowsEditor, "function");
-  assert.equal(typeof setEditorTheme, "function");
+test("setTheme updates documentElement vars and control rules use them", () => {
+  assert.equal(typeof setTheme, "function");
   assert.equal(typeof applyTheme, "function");
-  assert.ok(palettes["Dark+"] && palettes["Solarized Light"]);
+  assert.ok(palettes["Tokyo Night"] && palettes["Solarized Light"]);
 
   withThemeFixture((doc) => {
-    setChromeFollowsEditor(true);
-    setEditorTheme("Dark+");
+    setTheme("Tokyo Night");
     applyTheme();
     const before = cssVar(doc.documentElement, "--bg");
     assert.equal(
       before,
-      palettes["Dark+"]["--bg"],
-      "chromeFollowsEditor must paint documentElement --bg from the editor palette",
+      palettes["Tokyo Night"]["--bg"],
+      "setTheme must paint documentElement --bg from the named palette",
     );
 
-    setEditorTheme("Solarized Light");
+    setTheme("Solarized Light");
     applyTheme();
     const after = cssVar(doc.documentElement, "--bg");
     assert.equal(
       after,
       palettes["Solarized Light"]["--bg"],
-      "setEditorTheme to a light palette must change documentElement --bg (chrome follows editor)",
+      "setTheme to a light palette must change documentElement --bg",
     );
     assert.notEqual(
       after,
       before,
-      "documentElement --bg must change when the editor theme switches to Solarized Light",
+      "documentElement --bg must change when the theme switches to Solarized Light",
     );
-    assert.equal(cssVar(doc.body, "--bg"), palettes["Solarized Light"]["--bg"]);
     assert.equal(
-      cssVar(doc.getElementById("explorer"), "--bg"),
-      palettes["Solarized Light"]["--bg"],
+      cssVar(doc.body, "--bg"),
+      "",
+      "body inherits from :root (no per-element tokens)",
     );
+    assert.equal(cssVar(doc.getElementById("explorer"), "--bg"), "");
+    assert.equal(cssVar(doc.getElementById("editor"), "--bg"), "");
+    assert.equal(cssVar(doc.getElementById("preview"), "--bg"), "");
   });
 
   const failures = missingTokenFailures(loadCssRules(), UNTHEMED_CONTROLS);
@@ -262,49 +252,6 @@ test("chromeFollowsEditor light editor theme updates documentElement vars and co
     0,
     `control rules for #pane-layout, #pane-order, #explorer-sort, and #find-query must still reference var(--fg) / var(--bg or --bg-elevated) / var(--border) so they follow chrome CSS variables. ${failures.join("; ")}`,
   );
-});
-
-test("setPreviewTheme does not rebind chrome palette away from editor", () => {
-  assert.equal(typeof setPreviewTheme, "function");
-  assert.ok(palettes["Dark+"] && palettes["Solarized Light"] && palettes.Dark);
-
-  withThemeFixture((doc) => {
-    setChromeFollowsEditor(true);
-    setEditorTheme("Dark+");
-    setPreviewTheme("Dark");
-    applyTheme();
-    const chromeBg = cssVar(doc.documentElement, "--bg");
-    assert.equal(chromeBg, palettes["Dark+"]["--bg"]);
-
-    setPreviewTheme("Solarized Light");
-    applyTheme();
-
-    assert.equal(
-      cssVar(doc.documentElement, "--bg"),
-      palettes["Dark+"]["--bg"],
-      "setPreviewTheme must not rebind chrome documentElement --bg away from the editor palette",
-    );
-    assert.equal(
-      cssVar(doc.body, "--bg"),
-      palettes["Dark+"]["--bg"],
-      "setPreviewTheme must not rebind chrome body --bg away from the editor palette",
-    );
-    assert.equal(
-      cssVar(doc.getElementById("explorer"), "--bg"),
-      palettes["Dark+"]["--bg"],
-      "setPreviewTheme must not rebind explorer chrome --bg away from the editor palette",
-    );
-    assert.equal(
-      cssVar(doc.getElementById("preview"), "--bg"),
-      palettes["Solarized Light"]["--bg"],
-      "setPreviewTheme is preview-only: #preview tokens must follow the preview palette",
-    );
-    assert.equal(
-      cssVar(doc.getElementById("editor"), "--bg"),
-      palettes["Dark+"]["--bg"],
-      "setPreviewTheme must leave the editor palette unchanged",
-    );
-  });
 });
 
 test("layout-bar and explorer chrome buttons do not use fixed hex backgrounds", () => {

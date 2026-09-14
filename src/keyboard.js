@@ -1,8 +1,8 @@
 import { collapsePane, getLayout, layout } from "./layout.js";
-import { palettes, setEditorTheme, setPreviewTheme, theme } from "./palettes.js";
+import { palettes, setTheme, theme } from "./palettes.js";
 
 export { collapsePane, getLayout, layout };
-export { palettes, setEditorTheme, setPreviewTheme, theme };
+export { palettes, setTheme, theme };
 
 const PANE_BY_DIGIT = { 1: "explorer", 2: "editor", 3: "preview" };
 const BOUND = "__lightmdKeyboardBound";
@@ -26,26 +26,12 @@ function cyclePalette(current, delta) {
   return names[(i + delta + names.length) % names.length];
 }
 
-function cycleEditorTheme(delta) {
+function cycleTheme(delta) {
   const d = doc();
-  const select = d && typeof d.getElementById === "function" ? d.getElementById("editor-theme") : null;
-  const current = (select && select.value) || theme.editorTheme;
+  const select = d && typeof d.getElementById === "function" ? d.getElementById("theme") : null;
+  const current = (select && select.value) || theme.name;
   const next = cyclePalette(current, delta);
-  setEditorTheme(next);
-  if (select) {
-    select.value = next;
-    if (typeof Event === "function" && typeof select.dispatchEvent === "function") {
-      select.dispatchEvent(new Event("change"));
-    }
-  }
-}
-
-function cyclePreviewTheme(delta) {
-  const d = doc();
-  const select = d && typeof d.getElementById === "function" ? d.getElementById("preview-theme") : null;
-  const current = (select && select.value) || theme.previewTheme;
-  const next = cyclePalette(current, delta);
-  setPreviewTheme(next);
+  setTheme(next);
   if (select) {
     select.value = next;
     if (typeof Event === "function" && typeof select.dispatchEvent === "function") {
@@ -97,9 +83,7 @@ function onKeydown(event) {
   const right = key === "ArrowRight" || key === "Right" || code === "ArrowRight";
   if (event.altKey && (left || right)) {
     event.preventDefault();
-    const delta = left ? -1 : 1;
-    if (event.shiftKey) cyclePreviewTheme(delta);
-    else cycleEditorTheme(delta);
+    cycleTheme(left ? -1 : 1);
   }
 }
 

@@ -9,14 +9,16 @@ const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const srcDir = join(root, "src");
 
 const PALETTE_NAMES = [
-  "Light",
-  "Dark",
-  "High Contrast Light",
-  "High Contrast Dark",
-  "Dark+",
+  "Tokyo Night",
+  "Codex Dark",
+  "Nord",
+  "Dracula",
+  "Catppuccin Mocha",
   "Solarized Light",
   "Solarized Dark",
   "Monokai",
+  "High Contrast Light",
+  "High Contrast Dark",
 ];
 
 const TOKENS = [
@@ -623,7 +625,7 @@ function classifyAccentContexts(src) {
   return uses;
 }
 
-test("eight named palettes exist", async () => {
+test("Codex palettes exist", async () => {
   const api = await loadApi();
   assert.ok(
     api.palettes.length > 0,
@@ -633,7 +635,7 @@ test("eight named palettes exist", async () => {
   assert.equal(
     missing.length,
     0,
-    `missing named palettes: ${missing.join(", ")} (Light, Dark, High Contrast Light, High Contrast Dark, Dark+, Solarized Light, Solarized Dark, Monokai)`,
+    `missing named palettes: ${missing.join(", ")}`,
   );
 });
 
@@ -665,64 +667,22 @@ test("each palette maps onto the seven CSS tokens with real color values", async
   }
 });
 
-test("defaults: editor Dark+, preview Dark; chrome follows editor", async () => {
-  const api = await loadApi();
-  assert.ok(
-    api.prefs,
-    "missing editor/preview theme prefs (testable export/object is enough)",
-  );
-  assert.equal(
-    canonicalPaletteName(api.defaultEditor),
-    "Dark+",
-    "default editor theme must be Dark+",
-  );
-  assert.equal(
-    canonicalPaletteName(api.defaultPreview),
-    "Dark",
-    "default preview theme must be Dark",
-  );
-  const follows =
-    api.defaultChromeFollows === true ||
-    canonicalPaletteName(api.defaultChrome) === "Dark+" ||
-    normalizeName(api.defaultChrome || "") === "editor" ||
-    normalizeName(api.defaultChrome || "") === "follow editor" ||
-    sourceSaysChromeFollowsEditor(api.src);
-  assert.ok(follows, "chrome must follow the editor theme by default");
+test("default theme is Tokyo Night", async () => {
+  const { theme } = await import("../src/palettes.js");
+  assert.equal(theme.name, "Tokyo Night", "default app theme must be Tokyo Night");
 });
 
-test("editor theme and preview theme are independent", async () => {
-  const api = await loadApi();
-  assert.ok(
-    api.prefs || api.setters.setEditor || api.setters.setTheme,
-    "missing independent editor/preview theme prefs",
-  );
-  const setEditor = assignTheme(api, "editor", "Dark+");
-  const setPreview = assignTheme(api, "preview", "Light");
-  assert.ok(
-    setEditor && setPreview,
-    "setting editor to Dark+ and preview to Light must be possible (independent prefs)",
-  );
-  const prefs = pickPrefs(api.themeObj) || pickPrefs(api.mod) || api.prefs;
-  const editor = canonicalPaletteName(readNamed(prefs, "editor"));
-  const preview = canonicalPaletteName(readNamed(prefs, "preview"));
-  assert.equal(editor, "Dark+", "editor theme must be Dark+ after setting");
-  assert.equal(preview, "Light", "preview theme must be Light after setting");
-  assert.notEqual(
-    editor,
-    preview,
-    "editor theme and preview theme must be independent: setting editor to Dark+ and preview to Light must make them differ",
-  );
-  const editorPal = paletteByName(api.palettes, "Dark+");
-  const previewPal = paletteByName(api.palettes, "Light");
-  if (editorPal && previewPal) {
-    assert.notEqual(
-      editorPal.tokens["--bg"],
-      previewPal.tokens["--bg"],
-      "editor Dark+ and preview Light must differ (independent surfaces)",
-    );
+test("one named theme paints the whole app", async () => {
+  const { theme, setTheme } = await import("../src/palettes.js");
+  assert.equal(typeof setTheme, "function", "missing setTheme");
+  const prev = theme.name;
+  try {
+    setTheme("Tokyo Night");
+    setTheme("Nord");
+    assert.equal(theme.name, "Nord", "setTheme must set the single app theme");
+  } finally {
+    setTheme(prev);
   }
-  if (api.defaultEditor) assignTheme(api, "editor", api.defaultEditor);
-  if (api.defaultPreview) assignTheme(api, "preview", api.defaultPreview);
 });
 
 test("CSS variables plus CodeMirror theme maps for each palette", async () => {

@@ -5,8 +5,7 @@ export const session = {
   defaultFolder: "",
   lastFolder: null,
   lastFile: null,
-  editorTheme: null,
-  previewTheme: null,
+  theme: null,
   htmlJs: false,
 };
 
@@ -94,8 +93,7 @@ function payload() {
     lastFile: session.lastFile,
     folder: session.lastFolder,
     file: session.lastFile,
-    editorTheme: session.editorTheme,
-    previewTheme: session.previewTheme,
+    theme: session.theme,
     htmlJs: session.htmlJs,
   };
 }
@@ -112,8 +110,13 @@ function mergePartial(partial) {
   else if (("lastFolder" in partial || "folder" in partial) && session.lastFolder !== prevFolder) {
     session.lastFile = null;
   }
-  if ("editorTheme" in partial) session.editorTheme = partial.editorTheme;
-  if ("previewTheme" in partial) session.previewTheme = partial.previewTheme;
+  const nextTheme = firstOf(
+    typeof partial.theme === "string" ? partial.theme : undefined,
+    typeof partial.theme?.name === "string" ? partial.theme.name : undefined,
+    typeof partial.editorTheme === "string" ? partial.editorTheme : undefined,
+    typeof partial.previewTheme === "string" ? partial.previewTheme : undefined,
+  );
+  if (typeof nextTheme === "string") session.theme = nextTheme;
   const htmlJs = firstOf(htmlJsValue(partial.htmlJs), asBool(partial.htmlJsEnabled));
   if (htmlJs !== undefined) session.htmlJs = htmlJs;
 }
@@ -153,16 +156,30 @@ function storedFolder(stored) {
   return null;
 }
 
+function pickThemeName(stored) {
+  if (!stored || typeof stored !== "object") return null;
+  const candidates = [
+    typeof stored.theme === "string" ? stored.theme : undefined,
+    stored.theme && typeof stored.theme.name === "string" ? stored.theme.name : undefined,
+    typeof stored.editorTheme === "string" ? stored.editorTheme : undefined,
+    typeof stored.previewTheme === "string" ? stored.previewTheme : undefined,
+  ];
+  for (const name of candidates) {
+    if (typeof name === "string" && name !== "") return name;
+  }
+  return null;
+}
+
 function syncSessionControls() {
   const d = doc();
   if (!d || typeof d.getElementById !== "function") return;
-  const editorSelect = d.getElementById("editor-theme");
-  if (editorSelect && typeof session.editorTheme === "string") {
-    editorSelect.value = session.editorTheme;
+  const themeSelect = d.getElementById("theme");
+  if (themeSelect && typeof session.theme === "string") {
+    themeSelect.value = session.theme;
   }
-  const previewSelect = d.getElementById("preview-theme");
-  if (previewSelect && typeof session.previewTheme === "string") {
-    previewSelect.value = session.previewTheme;
+  const settingsTheme = d.getElementById("settings-theme");
+  if (settingsTheme && typeof session.theme === "string") {
+    settingsTheme.value = session.theme;
   }
   const htmlJsEl = d.getElementById("html-js");
   if (htmlJsEl && typeof session.htmlJs === "boolean") {
@@ -186,11 +203,8 @@ function applyFileBody(body) {
 async function applyThemeHelpers() {
   try {
     const palettes = await import("./palettes.js");
-    if (typeof session.editorTheme === "string" && typeof palettes.setEditorTheme === "function") {
-      palettes.setEditorTheme(session.editorTheme);
-    }
-    if (typeof session.previewTheme === "string" && typeof palettes.setPreviewTheme === "function") {
-      palettes.setPreviewTheme(session.previewTheme);
+    if (typeof session.theme === "string" && typeof palettes.setTheme === "function") {
+      palettes.setTheme(session.theme);
     }
   } catch {
     // Node import / missing palettes
@@ -253,18 +267,20 @@ export function restoreSession(extra) {
       ? extra.defaultFolder
       : session.defaultFolder;
   const lastFolder = storedFolder(stored);
+  if (stored && typeof stored === "object") {
+    const pickedTheme = pickThemeName(stored);
+    if (pickedTheme) session.theme = pickedTheme;
+    const htmlJs = firstOf(htmlJsValue(stored.htmlJs), asBool(stored.htmlJsEnabled));
+    if (htmlJs !== undefined) session.htmlJs = htmlJs;
+    if (typeof stored.restore === "boolean") session.restore = stored.restore;
+    if ("defaultFolder" in stored) session.defaultFolder = stored.defaultFolder;
+  }
   if (!lastFolder) {
     if (fallbackDefault !== undefined) session.lastFolder = fallbackDefault;
   } else {
     session.lastFolder = lastFolder;
     const lastFile = firstOf(stored.lastFile, stored.file);
     if (lastFile !== undefined) session.lastFile = lastFile;
-    if (stored.editorTheme !== undefined) session.editorTheme = stored.editorTheme;
-    if (stored.previewTheme !== undefined) session.previewTheme = stored.previewTheme;
-    const htmlJs = firstOf(htmlJsValue(stored.htmlJs), asBool(stored.htmlJsEnabled));
-    if (htmlJs !== undefined) session.htmlJs = htmlJs;
-    if (typeof stored.restore === "boolean") session.restore = stored.restore;
-    if ("defaultFolder" in stored) session.defaultFolder = stored.defaultFolder;
   }
   session.lastFile = confinedLastFile(session.lastFolder, session.lastFile);
   syncSessionControls();
@@ -282,16 +298,10 @@ export function getSession() {
 function bindSessionControls() {
   const d = doc();
   if (!d || typeof d.getElementById !== "function") return;
-  const editorSelect = d.getElementById("editor-theme");
-  if (editorSelect && typeof editorSelect.addEventListener === "function") {
-    editorSelect.addEventListener("change", () => {
-      persistSession({ editorTheme: editorSelect.value });
-    });
-  }
-  const previewSelect = d.getElementById("preview-theme");
-  if (previewSelect && typeof previewSelect.addEventListener === "function") {
-    previewSelect.addEventListener("change", () => {
-      persistSession({ previewTheme: previewSelect.value });
+  const themeSelect = d.getElementById("theme");
+  if (themeSelect && typeof themeSelect.addEventListener === "function") {
+    themeSelect.addEventListener("change", () => {
+      persistSession({ theme: themeSelect.value });
     });
   }
   const htmlJsEl = d.getElementById("html-js");

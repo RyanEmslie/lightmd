@@ -14,7 +14,7 @@ import {
 } from "./find.js";
 import { preview as previewConfig, renderPreview, rewritePreviewImages, bindPreviewLinks } from "./preview.js";
 import { isHtmlFile, showHtmlViewer, hideHtmlViewer } from "./html-viewer.js";
-import { applyTheme, setEditorTheme, setPreviewTheme } from "./palettes.js";
+import { applyTheme, setTheme } from "./palettes.js";
 import { restoreLayout } from "./layout.js";
 import { persistSession, restoreSession } from "./session.js";
 import { editorDefaults, mountSettings } from "./settings.js";
@@ -337,18 +337,11 @@ if (workspaceResults) {
   });
 }
 
-const editorThemeSelect = document.getElementById("editor-theme");
-if (editorThemeSelect) {
-  editorThemeSelect.addEventListener("change", (event) => {
-    setEditorTheme(event.target.value);
-    persistSession({ editorTheme: event.target.value });
-  });
-}
-const previewThemeSelect = document.getElementById("preview-theme");
-if (previewThemeSelect) {
-  previewThemeSelect.addEventListener("change", (event) => {
-    setPreviewTheme(event.target.value);
-    persistSession({ previewTheme: event.target.value });
+const themeSelect = document.getElementById("theme");
+if (themeSelect) {
+  themeSelect.addEventListener("change", (event) => {
+    setTheme(event.target.value);
+    persistSession({ theme: event.target.value });
   });
 }
 
