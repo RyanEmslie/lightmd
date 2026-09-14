@@ -9,6 +9,7 @@ import {
   setPreviewTheme,
   theme,
 } from "../src/palettes.js";
+import { collectFiles } from "./helpers/source.mjs";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const srcDir = join(root, "src");
@@ -42,14 +43,6 @@ const PREVIEW_TOKENS = ["--h1", "--h2", "--h3", "--link", "--code"];
 const DISTINCT_THEMES = ["Monokai", "Solarized Light"];
 
 const HEX = /^#(?:[\da-f]{3,4}|[\da-f]{6}|[\da-f]{8})$/i;
-
-const SKIP_DIRS = new Set([
-  "node_modules",
-  "target",
-  ".git",
-  "dist",
-  "dist-ssr",
-]);
 
 function isNonEmptyHex(value) {
   return typeof value === "string" && HEX.test(value.trim());
@@ -200,20 +193,6 @@ function withThemeFixture(run) {
     else theme.chromeTheme = prevTheme.chromeTheme;
     globalThis.document = prevDoc;
   }
-}
-
-function collectFiles(dir, acc = []) {
-  if (!existsSync(dir)) return acc;
-  for (const ent of readdirSync(dir, { withFileTypes: true })) {
-    if (SKIP_DIRS.has(ent.name)) continue;
-    const p = join(dir, ent.name);
-    if (ent.isDirectory()) {
-      collectFiles(p, acc);
-      continue;
-    }
-    acc.push(p);
-  }
-  return acc;
 }
 
 function loadPkg() {

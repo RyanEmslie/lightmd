@@ -3,6 +3,7 @@ import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { test } from "node:test";
+import { loadSourceFiles, collectFiles } from "./helpers/source.mjs";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const srcDir = join(root, "src");
@@ -29,34 +30,9 @@ const LAYOUT_PROP =
 const EDITOR_ONLY = String.raw`editor[-_]?only|editorOnly`;
 const READER_ONLY = String.raw`reader[-_]?only|readerOnly|preview[-_]?only|previewOnly`;
 
-function collectFiles(dir, acc = []) {
-  for (const ent of readdirSync(dir, { withFileTypes: true })) {
-    const p = join(dir, ent.name);
-    if (ent.isDirectory()) {
-      collectFiles(p, acc);
-      continue;
-    }
-    if (ent.name === "editor.bundle.js") continue;
-    acc.push(p);
-  }
-  return acc;
-}
-
-function collectSource(dir) {
-  const chunks = [];
-  for (const p of collectFiles(dir)) {
-    if (/\.(html|js|mjs|cjs|ts|css)$/i.test(p)) {
-      chunks.push({ path: p, text: readFileSync(p, "utf8") });
-    }
-  }
-  return chunks;
-}
 
 function loadSources() {
-  assert.equal(existsSync(srcDir), true, "src/ must exist");
-  const files = collectSource(srcDir);
-  assert.ok(files.length > 0, "src/ must contain editor source");
-  return files;
+  return loadSourceFiles();
 }
 
 function joinedSource(files = loadSources()) {
@@ -1247,22 +1223,19 @@ test("editor-only and reader-only layouts work by collapsing", async () => {
 
 test("panes can be rearranged (order is not fixed)", async () => {
   const { src, api } = await loadLayoutApi();
-  let runtime = false;
-  if (api?.reorder) {
-    try {
-      api.reorder(["preview", "editor", "explorer"]);
-      runtime = true;
-    } catch {
-      try {
-        api.reorder("explorer", "preview");
-        runtime = true;
-      } catch {
-        runtime = true;
-      }
-    }
+  if (typeof api?.reorder === "function") {
+    api.reorder(["preview", "editor", "explorer"]);
+    const after = currentLayout(api);
+    assert.ok(after?.order, "getLayout must return order after reorder");
+    assert.deepEqual(
+      after.order,
+      ["explorer", "preview", "editor"],
+      "reorder must keep explorer first and swap editor/preview",
+    );
+    return;
   }
   assert.ok(
-    runtime || hasRearrange(src, api),
+    hasRearrange(src, api),
     "missing pane rearrange (reorder/swap/drag API or controls)",
   );
 });

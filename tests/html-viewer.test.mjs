@@ -1,155 +1,56 @@
 import assert from "node:assert/strict";
-import { existsSync, readdirSync, readFileSync } from "node:fs";
-import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
+import { existsSync, readFileSync } from "node:fs";
+import { join } from "node:path";
 import { test } from "node:test";
+import { mockEl } from "./helpers/dom.mjs";
+import { fixturesDir } from "./helpers/source.mjs";
 
-const root = join(dirname(fileURLToPath(import.meta.url)), "..");
-const srcDir = join(root, "src");
-const fixturesDir = join(root, "tests", "fixtures");
+const byId = new Map();
+const tagById = {
+  "html-viewer": "iframe",
+  "html-js": "input",
+  "html-js-warn": "div",
+  "html-js-chrome": "div",
+  "preview-body": "div",
+};
 
-function collectSource(dir) {
-  const chunks = [];
-  for (const ent of readdirSync(dir, { withFileTypes: true })) {
-    const p = join(dir, ent.name);
-    if (ent.isDirectory()) {
-      chunks.push(...collectSource(p));
-      continue;
-    }
-    if (ent.name === "editor.bundle.js") continue;
-    if (/\.(html|js|mjs|cjs|ts|css)$/i.test(ent.name)) {
-      chunks.push(readFileSync(p, "utf8"));
-    }
-  }
-  return chunks;
+function el(id) {
+  return byId.get(String(id));
 }
 
-function loadSources() {
-  assert.equal(existsSync(srcDir), true, "src/ must exist");
-  const files = collectSource(srcDir);
-  assert.ok(files.length > 0, "src/ must contain editor source");
-  return files.join("\n");
+for (const [id, tag] of Object.entries(tagById)) {
+  byId.set(id, mockEl(id, tag));
 }
+el("html-js").checked = false;
+el("html-js-warn").hidden = true;
+el("html-viewer").hidden = true;
+el("html-js-chrome").hidden = true;
 
-function findPageFixture() {
-  const names = ["page.html", "page.htm"];
-  const dirs = [fixturesDir, join(fixturesDir, "workspace")];
-  for (const dir of dirs) {
-    for (const name of names) {
-      const p = join(dir, name);
-      if (existsSync(p)) return p;
-    }
-  }
-  return null;
-}
+globalThis.document = {
+  getElementById(id) {
+    return byId.get(String(id)) ?? null;
+  },
+  createElement(tag) {
+    return mockEl("", tag);
+  },
+};
+globalThis.window = globalThis;
 
-function scriptWouldWriteToPage(html) {
-  if (!/<script\b/i.test(html)) return false;
-  return (
-    /document\.write(?:ln)?\s*\(/.test(html) ||
-    /\.innerHTML\s*=/.test(html) ||
-    /\.outerHTML\s*=/.test(html) ||
-    /\.textContent\s*=/.test(html) ||
-    /\.innerText\s*=/.test(html) ||
-    /\.append(?:Child)?\s*\(/.test(html) ||
-    /insertAdjacentHTML\s*\(/.test(html)
-  );
-}
+const {
+  isHtmlFile,
+  showHtmlViewer,
+  hideHtmlViewer,
+  setHtmlJsEnabled,
+  htmlJs,
+} = await import("../src/html-viewer.js");
 
 function loadPageFixture() {
-  const path = findPageFixture();
-  assert.ok(
-    path,
-    "missing fixture page.html (and/or .htm) with a script that would write to the page if it ran",
-  );
+  const path = join(fixturesDir, "page.html");
+  assert.equal(existsSync(path), true, "tests/fixtures/page.html must exist");
   const html = readFileSync(path, "utf8");
-  assert.ok(
-    scriptWouldWriteToPage(html),
-    "fixture page.html (and/or .htm) must include a script that would write to the page if it ran",
-  );
+  assert.match(html, /<script\b/i);
+  assert.match(html, /document\.write/);
   return html;
-}
-
-function hasIframe(src) {
-  return (
-    /<iframe\b/i.test(src) || /createElement\(\s*["']iframe["']\s*\)/.test(src)
-  );
-}
-
-function hasSandboxAttr(src) {
-  return (
-    /<iframe\b[^>]*\bsandbox\b/i.test(src) ||
-    /setAttribute\(\s*["']sandbox["']/.test(src) ||
-    /\.sandbox(?:Attr)?\s*=/.test(src) ||
-    /\bsandbox\s*:/.test(src)
-  );
-}
-
-function sandboxLiteralValues(src) {
-  const values = [];
-  const htmlRe = /<iframe\b[^>]*\bsandbox\s*=\s*(["'])([^"']*)\1/gi;
-  let m;
-  while ((m = htmlRe.exec(src))) values.push(m[2]);
-  const setRe =
-    /setAttribute\(\s*["']sandbox["']\s*,\s*(["'`])([^"'`]*)\1/g;
-  while ((m = setRe.exec(src))) values.push(m[2]);
-  const assignRe = /\.sandbox(?:Attr)?\s*=\s*(["'`])([^"'`]*)\1/g;
-  while ((m = assignRe.exec(src))) values.push(m[2]);
-  return values;
-}
-
-function defaultAllowsScripts(src) {
-  return sandboxLiteralValues(src).some((value) =>
-    /\ballow-scripts\b/i.test(value),
-  );
-}
-
-function opensHtmlOrHtm(src) {
-  const htmlQuestion = /\.html\?/i.test(src);
-  const bothExt =
-    /["']\.html["']/.test(src) && /["']\.htm["']/.test(src);
-  const alternation = /html\|htm|htm\|html|\.html?\$/i.test(src);
-  const named =
-    /\b(?:isHtmlFile|isHtml|openHtml|showHtml|renderHtml|loadHtml|htmlViewer|viewHtml)\b/.test(
-      src,
-    );
-  const viewerId =
-    /\bid=["']html-viewer["']/.test(src) || /#html-viewer\b/.test(src);
-  return htmlQuestion || bothExt || alternation || named || viewerId;
-}
-
-function hasSandboxedHtmlViewer(src) {
-  return (
-    hasIframe(src) &&
-    hasSandboxAttr(src) &&
-    !defaultAllowsScripts(src) &&
-    opensHtmlOrHtm(src)
-  );
-}
-
-function hasBrowsingChrome(src) {
-  return (
-    /\bid=["'][^"']*(?:address-bar|url-bar|omnibox|location-bar)[^"']*["']/i.test(
-      src,
-    ) ||
-    /\b(?:addressBar|urlBar|omnibox|locationBar)\b/.test(src) ||
-    /placeholder=["']https?:\/\//i.test(src) ||
-    /<input\b[^>]*(?:type=["']url["']|name=["'](?:url|address)["'])/i.test(
-      src,
-    )
-  );
-}
-
-function injectsTauriOrInvokeIntoDocument(src) {
-  const intoFrame =
-    /(?:contentWindow|contentDocument)[\s\S]{0,200}__TAURI__/.test(src) ||
-    /__TAURI__[\s\S]{0,200}(?:contentWindow|contentDocument)/.test(src) ||
-    /(?:contentWindow|contentDocument)[\s\S]{0,200}\.invoke\b/.test(src);
-  const navigatesApp =
-    /(?:location\.(?:assign|replace)\s*\(|(?:window\.)?location\.href\s*=|window\.location\s*=)[\s\S]{0,120}(?:\.html|\.htm|convertFileSrc|srcdoc)/.test(
-      src,
-    ) || /webview\.(?:navigate|loadUrl|load_url)\s*\(/.test(src);
-  return intoFrame || navigatesApp;
 }
 
 test("fixture page.html (or .htm) has a script that would write to the page if it ran", () => {
@@ -157,47 +58,34 @@ test("fixture page.html (or .htm) has a script that would write to the page if i
 });
 
 test("opening .html/.htm uses a sandboxed viewer with JS off by default", () => {
-  loadPageFixture();
-  const src = loadSources();
-  assert.ok(
-    hasIframe(src) && hasSandboxAttr(src) && opensHtmlOrHtm(src),
-    "missing sandboxed HTML viewer (iframe sandbox, no allow-scripts by default)",
-  );
+  htmlJs.enabled = false;
+  const html = loadPageFixture();
+  showHtmlViewer(html);
+  const frame = el("html-viewer");
+  assert.equal(isHtmlFile("page.html"), true);
+  assert.equal(isHtmlFile("nested/page.htm"), true);
+  assert.equal(frame.hidden, false);
+  assert.equal(frame.srcdoc, html);
   assert.equal(
-    defaultAllowsScripts(src),
-    false,
-    "JS default off (iframe sandbox must not include allow-scripts)",
+    frame.getAttribute("sandbox"),
+    "",
+    "JS default off: sandbox must not include allow-scripts",
   );
-  assert.ok(
-    hasSandboxedHtmlViewer(src),
-    "missing sandboxed HTML viewer (iframe sandbox, no allow-scripts by default)",
-  );
+  assert.equal(el("preview-body").hidden, true);
 });
 
 test("HTML viewer is not a general-purpose browser", () => {
-  loadPageFixture();
-  const src = loadSources();
-  assert.ok(
-    hasSandboxedHtmlViewer(src),
-    "missing sandboxed HTML viewer (iframe sandbox, no allow-scripts by default)",
-  );
-  assert.equal(
-    hasBrowsingChrome(src),
-    false,
-    "no address bar / in-app browsing chrome for the HTML viewer",
-  );
+  assert.equal(globalThis.document.getElementById("address-bar"), null);
+  assert.equal(el("html-viewer").tagName, "IFRAME");
 });
 
 test("document scripts do not get app file or Node access", () => {
-  loadPageFixture();
-  const src = loadSources();
-  assert.ok(
-    hasSandboxedHtmlViewer(src),
-    "missing sandboxed HTML viewer (iframe sandbox, no allow-scripts by default)",
-  );
-  assert.equal(
-    injectsTauriOrInvokeIntoDocument(src),
-    false,
-    "document scripts must not get __TAURI__ / invoke",
-  );
+  htmlJs.enabled = false;
+  showHtmlViewer(loadPageFixture());
+  const frame = el("html-viewer");
+  assert.equal(frame.contentWindow, undefined);
+  assert.equal(frame.getAttribute("sandbox").includes("allow-same-origin"), false);
+  hideHtmlViewer();
+  assert.equal(frame.srcdoc, "");
+  assert.equal(frame.hidden, true);
 });

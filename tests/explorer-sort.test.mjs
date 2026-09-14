@@ -1,139 +1,90 @@
 import assert from "node:assert/strict";
-import { existsSync, readFileSync } from "node:fs";
-import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
 import { test } from "node:test";
+import { bootApp } from "./helpers/app.mjs";
 
-const root = join(dirname(fileURLToPath(import.meta.url)), "..");
-const htmlPath = join(root, "src", "index.html");
-
-function loadHtml() {
-  assert.equal(existsSync(htmlPath), true, "src/index.html must exist");
-  return readFileSync(htmlPath, "utf8");
+function fileRows(rt) {
+  return rt.el("file-list").children.filter((li) => li.dataset.dir !== "true");
 }
 
-function explorerHtml(html) {
-  const tagged = html.match(
-    /<(aside|div|nav|section)\b[^>]*\bid=["']explorer["'][^>]*>[\s\S]*?<\/\1>/i,
-  );
-  if (tagged) {
-    return tagged[0];
+function rowPaths(rt) {
+  return fileRows(rt).map((li) => li.dataset.path);
+}
+
+function rowLabels(rt) {
+  return fileRows(rt).map((li) => {
+    const span = (li.children || []).find((c) => c.tagName === "SPAN");
+    return span ? String(span.textContent || "") : "";
+  });
+}
+
+async function dispatchChange(el) {
+  el.dispatchEvent({
+    type: "change",
+    target: el,
+    preventDefault() {},
+    stopPropagation() {},
+  });
+  const results = el._lastDispatch || [];
+  await Promise.all(results.filter((r) => r && typeof r.then === "function"));
+}
+
+function bootSorted() {
+  return bootApp({
+    files: new Map([
+      ["a.md", "A"],
+      ["b.md", "B"],
+    ]),
+    modifiedOrder: ["b.md", "a.md"],
+  });
+}
+
+test("explorer has a sort control (name vs modified)", async () => {
+  const rt = bootSorted();
+  try {
+    const sort = rt.el("explorer-sort");
+    assert.equal(sort.tagName, "SELECT");
+    await rt.win.lightmdOpenFolder(rt.folderPath);
+    assert.deepEqual(rowPaths(rt), ["a.md", "b.md"]);
+    sort.value = "modified";
+    await dispatchChange(sort);
+    assert.deepEqual(
+      rowPaths(rt),
+      ["b.md", "a.md"],
+      "sort=modified must list newer b.md first",
+    );
+    const listed = rt.invokes.filter((i) => i.cmd === "list_workspace");
+    assert.ok(
+      listed.some((i) => i.args.sort === "modified"),
+      "list_workspace must be invoked with sort=modified",
+    );
+  } finally {
+    rt.cleanup();
   }
-  const start = html.search(/\bid=["']explorer["']/i);
-  assert.ok(start >= 0, "missing #explorer");
-  return html.slice(start);
-}
-
-function hasSortControl(html) {
-  const explorer = explorerHtml(html);
-  const hasSortId =
-    /\bid=["'][^"']*sort[^"']*["']/i.test(html) ||
-    /\.id\s*=\s*["'][^"']*sort[^"']*["']/i.test(html);
-  const hasName =
-    /<(?:option|button|input|label)\b[^>]*(?:value|id|name|aria-label)=["'][^"']*\bname\b[^"']*["']/i.test(
-      html,
-    ) ||
-    /<(?:option|button|label)\b[^>]*>[\s\S]{0,40}?\bname\b/i.test(html) ||
-    /\.value\s*=\s*["']name["']/i.test(html);
-  const hasModified =
-    /<(?:option|button|input|label)\b[^>]*(?:value|id|name|aria-label)=["'][^"']*\bmodified\b[^"']*["']/i.test(
-      html,
-    ) ||
-    /<(?:option|button|label)\b[^>]*>[\s\S]{0,40}?\bmodified\b/i.test(html) ||
-    /\.value\s*=\s*["']modified["']/i.test(html) ||
-    /\bmodified\b/i.test(html);
-  const hasSelect = /<select\b/i.test(html) || /createElement\(\s*["']select["']/i.test(html);
-  return (
-    (hasSortId || hasSelect || /\bsort\b/i.test(explorer) || /\bsort\b/i.test(html)) &&
-    hasName &&
-    hasModified
-  );
-}
-
-function hasExtensionsToggle(html) {
-  const explorer = explorerHtml(html);
-  const haystack = `${explorer}\n${html}`;
-  if (/\bid=["'][^"']*ext(?:ension)?s?[^"']*["']/i.test(haystack)) return true;
-  if (/\.id\s*=\s*["'][^"']*ext(?:ension)?s?[^"']*["']/i.test(haystack)) return true;
-  if (
-    /<(?:input|button|label)\b[^>]*(?:id|name|aria-label|for)=["'][^"']*ext(?:ension)?s?[^"']*["']/i.test(
-      haystack,
-    )
-  ) {
-    return true;
-  }
-  if (
-    /<(?:button|label)\b[^>]*>[\s\S]{0,80}?ext(?:ension)?s?[\s\S]{0,80}?<\/(?:button|label)>/i.test(
-      haystack,
-    )
-  ) {
-    return true;
-  }
-  if (/(?:show|hide|toggle)[-_ ]?ext(?:ension)?s?/i.test(haystack)) return true;
-  return false;
-}
-
-function hidesExtensionInDisplay(html) {
-  if (/(?:show|hide|toggle)[-_ ]?ext(?:ension)?s?/i.test(html)) return true;
-  if (/\bshowExtensions\b|\bhideExtensions\b|\bshow_ext(?:ension)?s?\b/i.test(html)) {
-    return true;
-  }
-  if (
-    /(?:textContent|innerText|innerHTML|displayName|label)\s*=[\s\S]{0,120}?(?:replace\s*\(|lastIndexOf\(\s*["']\.["']|split\(\s*["']\.["']|stripExt|withoutExt|hideExt|fileStem)/i.test(
-      html,
-    )
-  ) {
-    return true;
-  }
-  if (/replace\s*\(\s*\/\\?\.\w+/i.test(html)) return true;
-  return false;
-}
-
-function dataPathKeepsExtension(html) {
-  return (
-    /dataset\.path\s*=\s*(?:node\.)?(?:path|relative_path)/.test(html) ||
-    /setAttribute\(\s*["']data-path["']\s*,\s*(?:node\.)?(?:path|relative_path)/.test(html) ||
-    /data-path=["'][^"']*\.\w+/.test(html)
-  );
-}
-
-function openPathKeepsExtension(html) {
-  return (
-    /relative\s*:\s*(?:item\.)?dataset\.path/.test(html) ||
-    /invoke\(\s*["']read_workspace_file["'][\s\S]{0,240}?(?:dataset\.path|relative)/.test(
-      html,
-    )
-  );
-}
-
-test("explorer has a sort control (name vs modified)", () => {
-  const html = loadHtml();
-  assert.ok(
-    hasSortControl(html),
-    "explorer must have a sort control (name vs modified)",
-  );
 });
 
 test("explorer has an extensions toggle", () => {
-  const html = loadHtml();
-  assert.ok(
-    hasExtensionsToggle(html),
-    "explorer must have an extensions toggle",
-  );
+  const rt = bootSorted();
+  try {
+    assert.equal(rt.el("show-extensions").tagName, "INPUT");
+    assert.equal(rt.el("show-extensions").checked, true);
+  } finally {
+    rt.cleanup();
+  }
 });
 
-test("hiding extensions changes displayed names but data-path/open path still includes the extension", () => {
-  const html = loadHtml();
-  assert.ok(
-    hidesExtensionInDisplay(html),
-    "hiding extensions must change displayed names",
-  );
-  assert.ok(
-    dataPathKeepsExtension(html),
-    "data-path must still include the extension",
-  );
-  assert.ok(
-    openPathKeepsExtension(html),
-    "open path must still include the extension",
-  );
+test("hiding extensions changes displayed names but data-path/open path still includes the extension", async () => {
+  const rt = bootSorted();
+  try {
+    await rt.win.lightmdOpenFolder(rt.folderPath);
+    assert.deepEqual(rowLabels(rt), ["a.md", "b.md"]);
+    const toggle = rt.el("show-extensions");
+    toggle.checked = false;
+    await dispatchChange(toggle);
+    assert.deepEqual(rowLabels(rt), ["a", "b"]);
+    assert.deepEqual(rowPaths(rt), ["a.md", "b.md"]);
+    await rt.win.lightmdOpenFile("a.md");
+    assert.equal(rt.win.lightmdWorkspace.relative, "a.md");
+  } finally {
+    rt.cleanup();
+  }
 });

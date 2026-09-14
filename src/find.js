@@ -138,6 +138,48 @@ export function findInWorkspace(entriesOrRoot, needle, options = findOptions) {
   return hits;
 }
 
+export async function searchWorkspace({
+  root,
+  needle,
+  options = findOptions,
+  invoke,
+  fileCap = WORKSPACE_FILE_CAP,
+  yieldToUi,
+  shouldAbort,
+} = {}) {
+  if (needle == null || String(needle) === "") return [];
+  if (typeof invoke !== "function" || !root) return [];
+  let entries = [];
+  try {
+    entries = await invoke("list_workspace", { path: root });
+  } catch {
+    return [];
+  }
+  if (!Array.isArray(entries)) return [];
+  const files = [];
+  for (const entry of entries) {
+    if (shouldAbort?.()) return [];
+    if (!entry || entry.is_dir) continue;
+    const relative = workspaceRelative(entry);
+    if (!relative || !listedWorkspaceName(relative)) continue;
+    if (typeof yieldToUi === "function") await yieldToUi();
+    if (shouldAbort?.()) return [];
+    try {
+      const text = await invoke("read_workspace_file", { path: root, relative });
+      if (
+        typeof text === "string" &&
+        text.length <= fileCap &&
+        !text.includes("\0")
+      ) {
+        files.push({ relative, text });
+      }
+    } catch {
+      // skip unreadable files
+    }
+  }
+  return findInWorkspace(files, needle, options) || [];
+}
+
 function workspaceHitFrom(hitOrOpts) {
   if (!hitOrOpts || typeof hitOrOpts !== "object") return null;
   if (hitOrOpts.hit && typeof hitOrOpts.hit === "object") return hitOrOpts.hit;

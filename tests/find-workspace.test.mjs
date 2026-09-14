@@ -13,6 +13,7 @@ import { dirname, join, relative } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { test } from "node:test";
 import { findInBuffer, findOptions, runFind } from "../src/find.js";
+import { loadSourceText } from "./helpers/source.mjs";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const srcDir = join(root, "src");
@@ -45,27 +46,8 @@ const OPEN_HIT_NAMES = [
   "goToWorkspaceHit",
 ];
 
-function collectSource(dir) {
-  const chunks = [];
-  for (const ent of readdirSync(dir, { withFileTypes: true })) {
-    const p = join(dir, ent.name);
-    if (ent.isDirectory()) {
-      chunks.push(...collectSource(p));
-      continue;
-    }
-    if (ent.name === "editor.bundle.js") continue;
-    if (/\.(html|js|mjs|cjs|ts|css)$/i.test(ent.name)) {
-      chunks.push(readFileSync(p, "utf8"));
-    }
-  }
-  return chunks;
-}
-
 function loadSources() {
-  assert.equal(existsSync(srcDir), true, "src/ must exist");
-  const files = collectSource(srcDir);
-  assert.ok(files.length > 0, "src/ must contain editor source");
-  return files.join("\n");
+  return loadSourceText();
 }
 
 function loadHtml() {
@@ -649,4 +631,55 @@ test("Find in file (findInBuffer / #find-query) is unchanged", async () => {
     [],
     "findInBuffer empty needle must still return []",
   );
+});
+
+test("searchWorkspace lists and reads via invoke, then returns nested hits", async () => {
+  const { searchWorkspace } = await import("../src/find.js");
+  assert.equal(typeof searchWorkspace, "function");
+  const files = {
+    "ignore.txt": `txt ${NEEDLE}`,
+    "nested/deep/hit.md": `md ${NEEDLE} here`,
+    "nested/page.html": "nope",
+  };
+  const invokes = [];
+  async function invoke(cmd, args = {}) {
+    invokes.push({ cmd, args });
+    if (cmd === "list_workspace") {
+      return Object.keys(files).map((relative_path) => ({
+        relative_path,
+        is_dir: false,
+      }));
+    }
+    if (cmd === "read_workspace_file") {
+      if (!(args.relative in files)) throw new Error("missing");
+      return files[args.relative];
+    }
+    throw new Error(cmd);
+  }
+  const hits = await searchWorkspace({
+    root: "/tmp/ws",
+    needle: NEEDLE,
+    invoke,
+  });
+  assert.ok(
+    invokes.some((i) => i.cmd === "list_workspace" && i.args.path === "/tmp/ws"),
+  );
+  assert.ok(
+    invokes.some(
+      (i) =>
+        i.cmd === "read_workspace_file" && i.args.relative === "nested/deep/hit.md",
+    ),
+  );
+  assert.ok(hits.some((h) => h.relative === "nested/deep/hit.md"));
+  assert.equal(
+    hits.some((h) => h.relative === "ignore.txt"),
+    false,
+    "must skip non-md/html/htm even if invoke listed them",
+  );
+});
+
+test("searchWorkspace empty needle or missing invoke yields []", async () => {
+  const { searchWorkspace } = await import("../src/find.js");
+  assert.deepEqual(await searchWorkspace({ root: "/tmp/ws", needle: "", invoke: async () => [] }), []);
+  assert.deepEqual(await searchWorkspace({ root: "/tmp/ws", needle: NEEDLE }), []);
 });

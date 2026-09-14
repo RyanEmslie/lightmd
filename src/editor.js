@@ -7,10 +7,10 @@ import { parseFrontmatter } from "./frontmatter.js";
 import { cancelAutosave, scheduleAutoSave } from "./autosave.js";
 import {
   findExtension,
-  findInWorkspace,
   findOptions,
   openWorkspaceHit,
   runFind,
+  searchWorkspace,
 } from "./find.js";
 import { preview as previewConfig, renderPreview, rewritePreviewImages, bindPreviewLinks } from "./preview.js";
 import { isHtmlFile, showHtmlViewer, hideHtmlViewer } from "./html-viewer.js";
@@ -251,11 +251,6 @@ function yieldToUi() {
   });
 }
 
-function listedWorkspaceEntry(entry) {
-  if (!entry || entry.is_dir) return false;
-  return /\.(md|html|htm)$/i.test(String(entry.relative_path || ""));
-}
-
 function renderWorkspaceHits(hits) {
   if (!workspaceResults) return;
   workspaceResults.replaceChildren();
@@ -276,22 +271,6 @@ function renderWorkspaceHits(hits) {
   }
 }
 
-async function listWorkspaceEntries(path) {
-  const tauri = window.__TAURI__;
-  if (!tauri || !tauri.core || typeof tauri.core.invoke !== "function") {
-    return [];
-  }
-  return tauri.core.invoke("list_workspace", { path });
-}
-
-async function readWorkspaceText(path, relative) {
-  const tauri = window.__TAURI__;
-  if (!tauri || !tauri.core || typeof tauri.core.invoke !== "function") {
-    return "";
-  }
-  return tauri.core.invoke("read_workspace_file", { path, relative });
-}
-
 async function runWorkspaceFind() {
   const gen = ++workspaceSearchGen;
   const needle = workspaceQuery ? workspaceQuery.value : "";
@@ -307,30 +286,17 @@ async function runWorkspaceFind() {
     if (workspaceStatus) workspaceStatus.textContent = "0 results";
     return;
   }
-  let entries = [];
-  try {
-    entries = await listWorkspaceEntries(root);
-  } catch {
-    entries = [];
-  }
+  const invoke = window.__TAURI__?.core?.invoke;
+  const hits = await searchWorkspace({
+    root,
+    needle,
+    options: findOptions,
+    invoke,
+    fileCap: WORKSPACE_FILE_CAP,
+    yieldToUi,
+    shouldAbort: () => gen !== workspaceSearchGen,
+  });
   if (gen !== workspaceSearchGen) return;
-  const files = [];
-  for (const entry of entries) {
-    if (gen !== workspaceSearchGen) return;
-    if (!listedWorkspaceEntry(entry)) continue;
-    await yieldToUi();
-    if (gen !== workspaceSearchGen) return;
-    try {
-      const text = await readWorkspaceText(root, entry.relative_path);
-      if (typeof text === "string" && text.length <= WORKSPACE_FILE_CAP) {
-        files.push({ relative: entry.relative_path, text });
-      }
-    } catch {
-      // skip unreadable files
-    }
-  }
-  if (gen !== workspaceSearchGen) return;
-  const hits = findInWorkspace(files, needle, findOptions) || [];
   renderWorkspaceHits(hits);
   if (workspaceStatus) workspaceStatus.textContent = `${hits.length} results`;
 }

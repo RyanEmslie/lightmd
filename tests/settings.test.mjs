@@ -3,6 +3,7 @@ import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { test } from "node:test";
+import { loadSourceFiles, collectFiles } from "./helpers/source.mjs";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const srcDir = join(root, "src");
@@ -26,34 +27,9 @@ const OPEN_FN = String.raw`openSettings|showSettings|toggleSettings|openSettings
 
 const REPO_RE = /https?:\/\/github\.com\/clearly-bots\/lightmd\b/i;
 
-function collectFiles(dir, acc = []) {
-  for (const ent of readdirSync(dir, { withFileTypes: true })) {
-    const p = join(dir, ent.name);
-    if (ent.isDirectory()) {
-      collectFiles(p, acc);
-      continue;
-    }
-    if (ent.name === "editor.bundle.js") continue;
-    acc.push(p);
-  }
-  return acc;
-}
-
-function collectSource(dir) {
-  const chunks = [];
-  for (const p of collectFiles(dir)) {
-    if (/\.(html|js|mjs|cjs|ts|css)$/i.test(p)) {
-      chunks.push({ path: p, text: readFileSync(p, "utf8") });
-    }
-  }
-  return chunks;
-}
 
 function loadSources() {
-  assert.equal(existsSync(srcDir), true, "src/ must exist");
-  const files = collectSource(srcDir);
-  assert.ok(files.length > 0, "src/ must contain editor source");
-  return files;
+  return loadSourceFiles();
 }
 
 function joinedSource(files = loadSources()) {

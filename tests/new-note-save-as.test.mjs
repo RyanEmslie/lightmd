@@ -3,6 +3,7 @@ import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { test } from "node:test";
+import { loadSourceText } from "./helpers/source.mjs";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const srcDir = join(root, "src");
@@ -67,27 +68,8 @@ async function loadApiModules() {
   return apis;
 }
 
-function collectSource(dir) {
-  const chunks = [];
-  for (const ent of readdirSync(dir, { withFileTypes: true })) {
-    const p = join(dir, ent.name);
-    if (ent.isDirectory()) {
-      chunks.push(...collectSource(p));
-      continue;
-    }
-    if (ent.name === "editor.bundle.js") continue;
-    if (/\.(html|js|mjs|cjs|ts|css)$/i.test(ent.name)) {
-      chunks.push(readFileSync(p, "utf8"));
-    }
-  }
-  return chunks;
-}
-
 function loadSources() {
-  assert.equal(existsSync(srcDir), true, "src/ must exist");
-  const files = collectSource(srcDir);
-  assert.ok(files.length > 0, "src/ must contain editor source");
-  return files.join("\n");
+  return loadSourceText();
 }
 
 function loadHtml() {

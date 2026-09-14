@@ -228,11 +228,13 @@ pub fn run() {
 mod tests {
     use super::list;
     use super::read_file;
+    use super::read_image;
     use super::sort_by_modified;
     use super::sort_by_name;
     use super::write_file;
     use std::collections::HashSet;
     use std::path::PathBuf;
+    use std::time::{Duration, SystemTime};
 
     fn workspace_fixture() -> PathBuf {
         PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -242,26 +244,25 @@ mod tests {
             .join("workspace")
     }
 
-    struct RestoreOnDrop {
-        path: PathBuf,
-        original: String,
-    }
-
-    impl Drop for RestoreOnDrop {
+    struct RemoveDirOnDrop(PathBuf);
+    impl Drop for RemoveDirOnDrop {
         fn drop(&mut self) {
-            let _ = std::fs::write(&self.path, &self.original);
+            let _ = std::fs::remove_dir_all(&self.0);
         }
     }
 
-    struct RestoreBytesOnDrop {
-        path: PathBuf,
-        original: Vec<u8>,
-    }
-
-    impl Drop for RestoreBytesOnDrop {
-        fn drop(&mut self) {
-            let _ = std::fs::write(&self.path, &self.original);
-        }
+    fn temp_workspace(label: &str) -> (PathBuf, RemoveDirOnDrop) {
+        let root = std::env::temp_dir().join(format!(
+            "lightmd-{}-{}-{}",
+            label,
+            std::process::id(),
+            SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_nanos())
+                .unwrap_or(0)
+        ));
+        std::fs::create_dir_all(&root).expect("temp workspace");
+        (root.clone(), RemoveDirOnDrop(root))
     }
 
     fn has_fn(src: &str, name: &str) -> bool {
@@ -283,70 +284,6 @@ mod tests {
                     .map(|c| !c.is_ascii_alphanumeric() && c != '_')
                     .unwrap_or(false)
         })
-    }
-
-    fn find_fn_start(src: &str, name: &str) -> Option<usize> {
-        let needle = format!("fn {name}");
-        let mut from = 0;
-        while let Some(rel) = src[from..].find(&needle) {
-            let abs = from + rel;
-            let after = abs + needle.len();
-            let next = src.get(after..).and_then(|s| s.chars().next());
-            if next
-                .map(|c| !c.is_ascii_alphanumeric() && c != '_')
-                .unwrap_or(true)
-            {
-                return Some(abs);
-            }
-            from = after;
-        }
-        None
-    }
-
-    fn fn_body<'a>(src: &'a str, name: &str) -> Option<&'a str> {
-        let start = find_fn_start(src, name)?;
-        let brace = src[start..].find('{')? + start;
-        let mut depth = 0usize;
-        for (i, c) in src[brace..].char_indices() {
-            match c {
-                '{' => depth += 1,
-                '}' => {
-                    depth -= 1;
-                    if depth == 0 {
-                        return Some(&src[brace..=brace + i]);
-                    }
-                }
-                _ => {}
-            }
-        }
-        None
-    }
-
-    fn image_read_fn_name(src: &str) -> Option<&'static str> {
-        for name in [
-            "read_image",
-            "read_workspace_image",
-            "read_file_bytes",
-            "read_bytes",
-        ] {
-            if has_fn(src, name) {
-                return Some(name);
-            }
-        }
-        None
-    }
-
-    fn uses_root_relative_checks(body: &str) -> bool {
-        body.contains("confined_path")
-            || (body.contains("canonicalize") && body.contains("strip_prefix"))
-            || body.contains("read_image(")
-    }
-
-    fn reads_image_bytes(body: &str) -> bool {
-        body.contains("fs::read")
-            || body.contains("read_to_end")
-            || body.contains("Vec<u8>")
-            || body.contains("Vec < u8 >")
     }
 
     #[test]
@@ -396,19 +333,11 @@ mod tests {
 
     #[test]
     fn write_file_persists_so_read_file_returns_the_buffer() {
-        let root = workspace_fixture();
-        let relative = "note.md";
-        let path = root.join(relative);
-        let original =
-            std::fs::read_to_string(&path).expect("fixture note.md must exist");
-        let _restore = RestoreOnDrop {
-            path,
-            original,
-        };
+        let (root, _cleanup) = temp_workspace("write-persist");
+        std::fs::write(root.join("note.md"), "original\n").expect("seed note.md");
         let contents = "written by write_file test\n";
-        write_file(&root, relative, contents)
-            .expect("write_file should write the buffer");
-        let body = read_file(&root, relative)
+        write_file(&root, "note.md", contents).expect("write_file should write the buffer");
+        let body = read_file(&root, "note.md")
             .expect("read_file should read back the written buffer");
         assert_eq!(
             body.replace('\r', ""),
@@ -419,14 +348,26 @@ mod tests {
 
     #[test]
     fn write_file_rejects_parent_relative_path() {
-        let root = workspace_fixture();
-        let outside = root.join("..").join("outside.md");
-        let original =
-            std::fs::read_to_string(&outside).expect("fixture outside.md must exist");
-        let _restore = RestoreOnDrop {
-            path: outside.clone(),
-            original: original.clone(),
-        };
+        let parent = std::env::temp_dir().join(format!(
+            "lightmd-write-escape-parent-{}-{}",
+            std::process::id(),
+            SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_nanos())
+                .unwrap_or(0)
+        ));
+        let root = parent.join("workspace");
+        std::fs::create_dir_all(&root).expect("temp workspace");
+        let outside = parent.join("outside.md");
+        std::fs::write(&outside, "outside original\n").expect("seed outside.md");
+        struct RemoveDirOnDrop(PathBuf);
+        impl Drop for RemoveDirOnDrop {
+            fn drop(&mut self) {
+                let _ = std::fs::remove_dir_all(&self.0);
+            }
+        }
+        let _cleanup = RemoveDirOnDrop(parent.clone());
+        let original = std::fs::read_to_string(&outside).expect("outside.md readable");
         let result = write_file(
             &root,
             "../outside.md",
@@ -437,8 +378,7 @@ mod tests {
             "write_file(workspace_root, \"../outside.md\", ...) must be Err, got Ok({:?})",
             result.ok()
         );
-        let after = std::fs::read_to_string(&outside)
-            .expect("outside.md should still be readable");
+        let after = std::fs::read_to_string(&outside).expect("outside.md should still be readable");
         assert_eq!(
             after, original,
             "write_file must not mutate a path outside the workspace root"
@@ -447,22 +387,7 @@ mod tests {
 
     #[test]
     fn create_folder_nested_and_rejects_escape() {
-        let root = std::env::temp_dir().join(format!(
-            "lightmd-create-folder-{}-{}",
-            std::process::id(),
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .map(|d| d.as_nanos())
-                .unwrap_or(0)
-        ));
-        std::fs::create_dir_all(&root).expect("temp workspace");
-        struct RemoveDirOnDrop(PathBuf);
-        impl Drop for RemoveDirOnDrop {
-            fn drop(&mut self) {
-                let _ = std::fs::remove_dir_all(&self.0);
-            }
-        }
-        let _cleanup = RemoveDirOnDrop(root.clone());
+        let (root, _cleanup) = temp_workspace("create-folder");
 
         super::create_folder(&root, "notes/trip").expect("create nested folder");
         assert!(
@@ -480,20 +405,10 @@ mod tests {
 
     #[test]
     fn write_file_creates_new_file_under_workspace() {
-        let root = workspace_fixture();
-        let relative = "save-as-new.md";
-        let path = root.join(relative);
-        struct RemoveOnDrop(PathBuf);
-        impl Drop for RemoveOnDrop {
-            fn drop(&mut self) {
-                let _ = std::fs::remove_file(&self.0);
-            }
-        }
-        let _cleanup = RemoveOnDrop(path.clone());
-        let _ = std::fs::remove_file(&path);
-        write_file(&root, relative, "created by save as\n")
+        let (root, _cleanup) = temp_workspace("save-as-new");
+        write_file(&root, "save-as-new.md", "created by save as\n")
             .expect("write_file should create a new file for Save As");
-        let body = read_file(&root, relative).expect("new file should be readable");
+        let body = read_file(&root, "save-as-new.md").expect("new file should be readable");
         assert_eq!(
             body.replace('\r', ""),
             "created by save as\n",
@@ -533,14 +448,12 @@ mod tests {
             .collect()
     }
 
-    fn ensure_a_md_older_than_b_md() {
-        use std::time::{Duration, SystemTime};
-
-        let root = workspace_fixture();
+    fn sorted_temp_workspace() -> (PathBuf, RemoveDirOnDrop) {
+        let (root, cleanup) = temp_workspace("sort");
         let a_path = root.join("a.md");
         let b_path = root.join("b.md");
-        assert!(a_path.is_file(), "fixture a.md must exist");
-        assert!(b_path.is_file(), "fixture b.md must exist");
+        std::fs::write(&a_path, "a\n").expect("seed a.md");
+        std::fs::write(&b_path, "b\n").expect("seed b.md");
         let now = SystemTime::now();
         std::fs::OpenOptions::new()
             .write(true)
@@ -554,13 +467,13 @@ mod tests {
             .expect("open b.md")
             .set_modified(now)
             .expect("b.md must be newer than a.md");
+        (root, cleanup)
     }
 
     #[test]
     fn sort_by_name_orders_a_md_before_b_md() {
-        ensure_a_md_older_than_b_md();
-        let entries =
-            sort_by_name(&workspace_fixture()).expect("sort_by_name should list the workspace");
+        let (root, _cleanup) = sorted_temp_workspace();
+        let entries = sort_by_name(&root).expect("sort_by_name should list the workspace");
         assert_eq!(
             listed_ab(&entries),
             ["a.md", "b.md"],
@@ -570,9 +483,8 @@ mod tests {
 
     #[test]
     fn sort_by_modified_orders_newer_b_md_first() {
-        ensure_a_md_older_than_b_md();
-        let entries = sort_by_modified(&workspace_fixture())
-            .expect("sort_by_modified should list the workspace");
+        let (root, _cleanup) = sorted_temp_workspace();
+        let entries = sort_by_modified(&root).expect("sort_by_modified should list the workspace");
         assert_eq!(
             listed_ab(&entries),
             ["b.md", "a.md"],
@@ -583,35 +495,14 @@ mod tests {
     #[test]
     fn read_image_returns_pic_png_bytes() {
         let root = workspace_fixture();
-        let relative = "pic.png";
-        let path = root.join(relative);
-        let original = std::fs::read(&path).expect("fixture pic.png must exist");
-        let _restore = RestoreBytesOnDrop {
-            path: path.clone(),
-            original: original.clone(),
-        };
+        let original = std::fs::read(root.join("pic.png")).expect("fixture pic.png must exist");
         assert!(
             original.starts_with(b"\x89PNG\r\n\x1a\n"),
             "fixture pic.png must be a PNG"
         );
-
-        let src = include_str!("lib.rs");
-        let name = image_read_fn_name(src);
-        assert!(
-            name.is_some(),
-            "missing read_image (workspace-relative image, same root-relative checks as read_file)"
-        );
-        let body = fn_body(src, name.unwrap()).unwrap_or("");
-        assert!(
-            uses_root_relative_checks(body),
-            "read_image must use the same root-relative checks as read_file"
-        );
-        assert!(
-            reads_image_bytes(body),
-            "read_image(root, relative) must return the bytes of pic.png"
-        );
-
-        let after = std::fs::read(&path).expect("pic.png should still be readable");
+        let bytes = read_image(&root, "pic.png").expect("read_image should return pic.png bytes");
+        assert_eq!(bytes, original, "read_image(root, \"pic.png\") must return the PNG bytes");
+        let after = std::fs::read(root.join("pic.png")).expect("pic.png should still be readable");
         assert_eq!(after, original, "read_image must not mutate pic.png");
     }
 
@@ -620,30 +511,12 @@ mod tests {
         let root = workspace_fixture();
         let outside = root.join("..").join("outside.png");
         let original = std::fs::read(&outside).expect("fixture outside.png must exist");
-        let _restore = RestoreBytesOnDrop {
-            path: outside.clone(),
-            original: original.clone(),
-        };
-
-        let src = include_str!("lib.rs");
-        let name = image_read_fn_name(src);
-        assert!(
-            name.is_some(),
-            "missing read_image (workspace-relative image, same root-relative checks as read_file)"
-        );
-        let body = fn_body(src, name.unwrap()).unwrap_or("");
-        assert!(
-            uses_root_relative_checks(body),
-            "read_image(workspace_root, \"../outside.png\") must be Err, got Ok"
-        );
-
-        let result = super::confined_path(&root, "../outside.png");
+        let result = read_image(&root, "../outside.png");
         assert!(
             result.is_err(),
             "read_image(workspace_root, \"../outside.png\") must be Err, got Ok({:?})",
-            result.ok()
+            result.ok().map(|b| b.len())
         );
-
         let after = std::fs::read(&outside).expect("outside.png should still be readable");
         assert_eq!(
             after, original,

@@ -3,6 +3,29 @@ import taskLists from "markdown-it-task-lists";
 
 const md = new MarkdownIt({ html: false }).use(taskLists);
 
+function isBlockedImageSrc(src) {
+  const s = String(src || "");
+  if (/^(?:https?:|\/\/)/i.test(s)) return true;
+  if (/^(?:javascript|vbscript):/i.test(s)) return true;
+  if (/^data:/i.test(s) && !/^data:image\//i.test(s)) return true;
+  return false;
+}
+
+const defaultImageRule =
+  md.renderer.rules.image ||
+  function (tokens, idx, options, env, self) {
+    return self.renderToken(tokens, idx, options);
+  };
+
+md.renderer.rules.image = function (tokens, idx, options, env, self) {
+  const token = tokens[idx];
+  const srcIndex = token.attrIndex("src");
+  if (srcIndex >= 0 && isBlockedImageSrc(token.attrs[srcIndex][1])) {
+    token.attrs[srcIndex][1] = "";
+  }
+  return defaultImageRule(tokens, idx, options, env, self);
+};
+
 // Default live on; set live: false to update the preview only on save.
 export const preview = {
   live: true,
@@ -72,7 +95,9 @@ function bytesToDataUrl(bytes, mime) {
 }
 
 export function resolvePreviewImage(src, workspace, fileRelative = "") {
-  if (!src || hasScheme(src)) return src;
+  if (!src) return src;
+  if (isBlockedImageSrc(src)) return "";
+  if (hasScheme(src)) return src;
   const relative = confinedWorkspaceRelative(src, fileRelative);
   if (relative == null) return src;
   const convert = globalThis.__TAURI__?.core?.convertFileSrc;
@@ -109,7 +134,12 @@ export async function rewritePreviewImages(root, workspace, fileRelative) {
   await Promise.all(
     imgs.map(async (img) => {
       const src = img.getAttribute("src") || "";
-      if (!src || hasScheme(src)) return;
+      if (!src) return;
+      if (isBlockedImageSrc(src)) {
+        img.removeAttribute("src");
+        return;
+      }
+      if (hasScheme(src)) return;
       const relative = confinedWorkspaceRelative(src, fileRelative);
       if (relative == null || !workspace) return;
       const url = await loadWorkspaceImage(workspace, relative);
