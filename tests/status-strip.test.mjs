@@ -306,11 +306,11 @@ function extraWidgetsOnStrip(src) {
 }
 
 function themeSelectorsInChrome(src) {
+  const settings = taggedById(src, "settings") || { full: src };
   const layoutBar = taggedById(src, "layout-bar");
-  return (
-    (layoutBar && /id=["']theme["']/i.test(layoutBar.full)) ||
-    /id=["']theme["']/i.test(src)
-  );
+  const inSettings = /id=["']settings-theme["']/i.test(settings.full || src);
+  const onBar = layoutBar && /id=["'](?:settings-)?theme["']/i.test(layoutBar.full);
+  return inSettings && !onBar;
 }
 
 function themeSelectorsOnStrip(src) {
@@ -385,11 +385,11 @@ test("status strip has path, dirty, and word count, and nothing else (no extra w
   );
 });
 
-test("theme selectors stay in chrome, not on the strip", () => {
+test("theme selectors stay in Settings, not on the strip", () => {
   const src = loadSources();
   assert.ok(
     themeSelectorsInChrome(src),
-    "theme selectors must stay in chrome",
+    "theme selector must stay in Settings, not in the layout bar",
   );
   assert.equal(
     themeSelectorsOnStrip(src),

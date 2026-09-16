@@ -282,7 +282,7 @@ function collapseAction(pane) {
 }
 
 const THEME_ACTION =
-  /setTheme|cycleTheme|#theme\b/;
+  /setTheme|cycleTheme|#settings-theme\b/;
 
 function mockClassList() {
   const set = new Set();
@@ -505,7 +505,7 @@ function installRuntimeDom() {
     save: "button",
     find: "button",
     "find-query": "input",
-    theme: "select",
+    "settings-theme": "select",
     explorer: "aside",
     editor: "main",
     preview: "section",
@@ -525,7 +525,7 @@ function installRuntimeDom() {
     "save",
     "find",
     "find-query",
-    "theme",
+    "settings-theme",
     "editor-buffer",
     "editor-view",
     "settings",
@@ -534,7 +534,7 @@ function installRuntimeDom() {
   ]) {
     el(id);
   }
-  el("theme").value = "Tokyo Night";
+  el("settings-theme").value = "Tokyo Night";
 
   const doc = {
     documentElement: mockEl("html"),
@@ -1067,7 +1067,7 @@ test("Ctrl+Alt arrows cycle the app theme", async () => {
   const binds = keydownBinds(rt.listeners);
   if (binds.length) {
     const theme = themeState(rt.mods);
-    const before = theme?.name ?? rt.el("theme").value;
+    const before = theme?.name ?? rt.el("settings-theme").value;
     dispatchKeydown(rt.listeners, {
       key: "ArrowRight",
       code: "ArrowRight",
@@ -1077,7 +1077,7 @@ test("Ctrl+Alt arrows cycle the app theme", async () => {
       shiftKey: false,
       metaKey: false,
     });
-    const afterRight = themeState(rt.mods)?.name ?? rt.el("theme").value;
+    const afterRight = themeState(rt.mods)?.name ?? rt.el("settings-theme").value;
     dispatchKeydown(rt.listeners, {
       key: "ArrowLeft",
       code: "ArrowLeft",
@@ -1087,7 +1087,7 @@ test("Ctrl+Alt arrows cycle the app theme", async () => {
       shiftKey: false,
       metaKey: false,
     });
-    const afterLeft = themeState(rt.mods)?.name ?? rt.el("theme").value;
+    const afterLeft = themeState(rt.mods)?.name ?? rt.el("settings-theme").value;
     assert.ok(
       afterRight !== before || afterLeft !== before || afterLeft !== afterRight,
       "missing Ctrl+Alt+ArrowLeft/ArrowRight shortcut: keydown must cycle setTheme",
@@ -1142,7 +1142,7 @@ test("explorer editor panes save and themes are reachable from the keyboard", ()
     "editor",
     "preview",
     "save",
-    "theme",
+    "settings-theme",
   ];
   for (const id of ids) {
     assert.ok(reachable(html, id) || reachable(src, id), `missing keyboard reachability for #${id} (tabindex or native control; no tabindex=-1)`);
@@ -1246,7 +1246,7 @@ test("keyboard theme cycle persists", async () => {
         metaKey: false,
       });
 
-      const themeName = rt.el("theme").value || themeState(rt.mods)?.name;
+      const themeName = rt.el("settings-theme").value || themeState(rt.mods)?.name;
 
       const calledWith = (key, value) =>
         persistCalls.some((args) =>

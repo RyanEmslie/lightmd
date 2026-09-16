@@ -336,7 +336,7 @@ export function applyTheme() {
 function syncThemeSelects(name) {
   const d = typeof globalThis.document !== "undefined" ? globalThis.document : null;
   if (!d || typeof d.getElementById !== "function") return;
-  for (const id of ["theme", "settings-theme"]) {
+  for (const id of ["settings-theme"]) {
     const el = d.getElementById(id);
     if (el) el.value = name;
   }

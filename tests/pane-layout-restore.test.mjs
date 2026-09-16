@@ -140,6 +140,8 @@ function stripHasLayoutWidgets(html) {
 
 function restoreChromeRemains(html) {
   if (stripHasLayoutWidgets(html)) return false;
+  const settings = taggedById(html, "settings");
+  if (settings && hasThreePaneRestore(settings.full)) return true;
   const outside = chromeOutsidePanes(html);
   if (hasThreePaneRestore(outside) && hasPerPaneRestore(outside)) return true;
   return PANE_IDS.every((id) => {

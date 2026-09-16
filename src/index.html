@@ -156,7 +156,7 @@
       #open-folder,
       #new-note,
       #new-folder,
-      #layout-bar > button[data-pane-toggle] {
+      #settings-open {
         display: inline-flex;
         align-items: center;
         justify-content: center;
@@ -173,22 +173,49 @@
       #open-folder svg,
       #new-note svg,
       #new-folder svg,
-      #layout-bar > button[data-pane-toggle] svg {
+      #settings-open svg {
         display: block;
         width: 16px;
         height: 16px;
+      }
+
+      #toggle-preview,
+      #toggle-editor {
+        display: inline-flex;
+        align-items: center;
+        height: 28px;
+        padding: 0 8px;
+        flex: none;
+        font: inherit;
+        color: var(--fg-muted);
+        background: var(--bg);
+        border: 1px solid var(--border);
+      }
+
+      #toggle-preview[aria-pressed="true"],
+      #toggle-editor[aria-pressed="true"] {
+        color: var(--bg);
+        background: var(--fg);
+        border-color: var(--fg);
       }
 
       #sidebar-toggle:hover,
       #open-folder:hover,
       #new-note:hover,
       #new-folder:hover,
-      #layout-bar > button[data-pane-toggle]:hover {
+      #settings-open:hover,
+      #toggle-preview:hover,
+      #toggle-editor:hover {
         background: var(--bg-elevated);
       }
 
+      #toggle-preview[aria-pressed="true"]:hover,
+      #toggle-editor[aria-pressed="true"]:hover {
+        color: var(--bg);
+        background: var(--fg);
+      }
+
       #explorer-sort,
-      #theme,
       #pane-layout,
       #pane-order,
       #settings select,
@@ -202,7 +229,6 @@
       #explorer-sort,
       #find-query,
       #find-workspace-query,
-      #theme,
       #settings select,
       #settings input:not([type="checkbox"]):not([type="radio"]) {
         color: var(--fg);
@@ -621,6 +647,21 @@
     <div id="layout-bar">
       <button
         type="button"
+        id="settings-open"
+        aria-label="Settings"
+        title="Settings"
+      >
+        <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" focusable="false">
+          <path
+            fill="currentColor"
+            fill-rule="evenodd"
+            d="M8.6 1.5c.33 0 .62.2.74.51l.6 1.6c.42.1.82.26 1.2.45l1.55-.45a.75.75 0 0 1 .85.4l.75 1.3a.75.75 0 0 1-.13.88l-1.15 1.07c.04.3.04.61 0 .91l1.15 1.07a.75.75 0 0 1 .13.88l-.75 1.3a.75.75 0 0 1-.85.4l-1.55-.45c-.38.19-.78.35-1.2.45l-.6 1.6a.75.75 0 0 1-.74.51H7.4a.75.75 0 0 1-.74-.51l-.6-1.6a6 6 0 0 1-1.2-.45l-1.55.45a.75.75 0 0 1-.85-.4l-.75-1.3a.75.75 0 0 1 .13-.88l1.15-1.07a6 6 0 0 1 0-.91L1.64 6.22a.75.75 0 0 1-.13-.88l.75-1.3a.75.75 0 0 1 .85-.4l1.55.45c.38-.19.78-.35 1.2-.45l.6-1.6a.75.75 0 0 1 .74-.51h1.2ZM8 10.5a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5Z"
+            clip-rule="evenodd"
+          />
+        </svg>
+      </button>
+      <button
+        type="button"
         id="sidebar-toggle"
         data-pane-toggle="explorer"
         aria-label="Toggle sidebar"
@@ -633,45 +674,26 @@
           <rect x="1.5" y="2.5" width="4.5" height="11" rx="2" fill="currentColor" />
         </svg>
       </button>
-      <label for="pane-layout">Layout</label>
-      <select id="pane-layout">
-        <option value="three-pane" selected>Three panes</option>
-        <option value="editor-preview">Editor + preview</option>
-        <option value="editor-only">Editor only</option>
-        <option value="reader-only">Reader only</option>
-      </select>
       <button
         type="button"
-        data-pane-toggle="editor"
-        aria-pressed="true"
-        aria-label="Hide editor"
-        title="Hide editor"
-      >
-        <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" focusable="false">
-          <rect x="1.5" y="2.5" width="13" height="11" rx="2" fill="none" stroke="currentColor" stroke-width="1.25" />
-          <rect x="1.5" y="2.5" width="7" height="11" rx="2" fill="currentColor" />
-        </svg>
-      </button>
-      <button
-        type="button"
+        id="toggle-preview"
         data-pane-toggle="preview"
         aria-pressed="true"
-        aria-label="Hide preview"
-        title="Hide preview"
+        aria-label="Preview"
+        title="Preview"
       >
-        <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" focusable="false">
-          <rect x="1.5" y="2.5" width="13" height="11" rx="2" fill="none" stroke="currentColor" stroke-width="1.25" />
-          <rect x="7.5" y="2.5" width="7" height="11" rx="2" fill="currentColor" />
-        </svg>
+        Preview
       </button>
-      <label for="pane-order">Order</label>
-      <select id="pane-order">
-        <option value="editor,preview" selected>Editor, preview</option>
-        <option value="preview,editor">Preview, editor</option>
-      </select>
-      <label for="theme">Theme</label>
-      <select id="theme"></select>
-      <button type="button" id="settings-open">Settings</button>
+      <button
+        type="button"
+        id="toggle-editor"
+        data-pane-toggle="editor"
+        aria-pressed="true"
+        aria-label="Editor"
+        title="Editor"
+      >
+        Editor
+      </button>
     </div>
     <section id="settings" class="settings" hidden>
       <div class="settings-row">
@@ -780,6 +802,22 @@
       </div>
       <h2>Workspace</h2>
       <div class="settings-row">
+        <label for="pane-layout">Layout</label>
+        <select id="pane-layout">
+          <option value="three-pane" selected>Three panes</option>
+          <option value="editor-preview">Editor + preview</option>
+          <option value="editor-only">Editor only</option>
+          <option value="reader-only">Reader only</option>
+        </select>
+      </div>
+      <div class="settings-row">
+        <label for="pane-order">Order</label>
+        <select id="pane-order">
+          <option value="editor,preview" selected>Editor, preview</option>
+          <option value="preview,editor">Preview, editor</option>
+        </select>
+      </div>
+      <div class="settings-row">
         <label for="settings-default-folder">Default folder</label>
         <input type="text" id="settings-default-folder" />
       </div>
@@ -798,7 +836,7 @@
       </div>
       <div class="settings-row">
         <label>
-          <input type="checkbox" id="settings-show-extensions" checked />
+          <input type="checkbox" id="show-extensions" checked />
           Show extensions
         </label>
       </div>
@@ -884,10 +922,6 @@
             <option value="name">Name</option>
             <option value="modified">Modified</option>
           </select>
-          <label>
-            <input type="checkbox" id="show-extensions" checked />
-            Extensions
-          </label>
         </div>
         <ul id="file-list"></ul>
         <div id="find-workspace">
@@ -909,7 +943,6 @@
         <div id="editor-tabs" role="tablist" aria-label="Open files"></div>
         <textarea id="editor-buffer"></textarea>
         <div id="editor-chrome">
-          <button type="button" data-pane-toggle="editor" aria-pressed="true">Hide</button>
           <button type="button" id="save">Save</button>
           <button type="button" id="save-as">Save As</button>
           <button type="button" id="find">Find</button>
@@ -920,9 +953,7 @@
         <div class="splitter" role="separator" aria-orientation="vertical"></div>
       </main>
       <section id="preview" class="pane" tabindex="0">
-        <div id="preview-chrome">
-          <button type="button" data-pane-toggle="preview" aria-pressed="true">Hide</button>
-        </div>
+        <div id="preview-chrome"></div>
         <div id="html-js-chrome" hidden>
           <label>
             <input type="checkbox" id="html-js" />
@@ -994,7 +1025,7 @@
         }
 
         function displayName(name, isDir) {
-          if (extensionsToggle.checked || isDir) return name;
+          if ((extensionsToggle && extensionsToggle.checked) || isDir) return name;
           const dot = name.lastIndexOf(".");
           if (dot <= 0) return name;
           return name.slice(0, dot);
@@ -1649,9 +1680,11 @@
           await loadWorkspace(workspacePath);
         });
 
-        extensionsToggle.addEventListener("change", () => {
-          render(lastEntries);
-        });
+        if (extensionsToggle) {
+          extensionsToggle.addEventListener("change", () => {
+            render(lastEntries);
+          });
+        }
 
         fileList.addEventListener("click", async (event) => {
           const item = event.target.closest("li");

@@ -84,8 +84,8 @@ function hasSelectOrControlMarkup(src, idAlt) {
 }
 
 function hasChromeThemeSelectors(files) {
-  const chrome = chromeSource(files);
-  return hasSelectOrControlMarkup(chrome, String.raw`theme`);
+  const src = joinedSource(files);
+  return hasSelectOrControlMarkup(src, String.raw`settings-theme`);
 }
 
 function windowsAround(src, re, before, after) {
@@ -364,11 +364,11 @@ async function loadThemeHook() {
   return null;
 }
 
-test("main chrome has a theme selector", () => {
+test("Settings has a theme selector", () => {
   const files = loadSources();
   assert.ok(
     hasChromeThemeSelectors(files),
-    "missing chrome theme selector (select#theme)",
+    "missing Settings theme selector (select#settings-theme)",
   );
 });
 
@@ -376,7 +376,7 @@ test("changing the theme selector uses setTheme", () => {
   const files = loadSources();
   assert.ok(
     selectorsUpdateBothSurfaces(files),
-    "changing the chrome theme selector must use setTheme",
+    "changing the Settings theme selector must use setTheme",
   );
 });
 
@@ -395,7 +395,7 @@ test("theme switch is instant (no CSS transition/animation on theme colors besid
   );
   assert.ok(
     hasChromeThemeSelectors(files) && selectorsUpdateBothSurfaces(files),
-    "theme switch must be instant: changing the chrome theme selector must update immediately",
+    "theme switch must be instant: changing the Settings theme selector must update immediately",
   );
 });
 

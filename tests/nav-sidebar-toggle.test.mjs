@@ -916,15 +916,6 @@ test("editor-preview, three-pane, and editor+preview hide-show still work; explo
   collapsePane("preview", false);
   assert.equal(liveLayout().open.preview, true, "collapsePane(preview, false) must still show preview");
 
-  const editorToggles = fixture.toggles.filter(
-    (btn) => btn.getAttribute("data-pane-toggle") === "editor",
-  );
-  const previewToggles = fixture.toggles.filter(
-    (btn) => btn.getAttribute("data-pane-toggle") === "preview",
-  );
-  assert.ok(editorToggles.length >= 1, "editor Hide/Show toggles must still exist");
-  assert.ok(previewToggles.length >= 1, "preview Hide/Show toggles must still exist");
-
   assert.equal(
     orderStripHasExplorer(),
     false,

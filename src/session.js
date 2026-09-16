@@ -173,10 +173,6 @@ function pickThemeName(stored) {
 function syncSessionControls() {
   const d = doc();
   if (!d || typeof d.getElementById !== "function") return;
-  const themeSelect = d.getElementById("theme");
-  if (themeSelect && typeof session.theme === "string") {
-    themeSelect.value = session.theme;
-  }
   const settingsTheme = d.getElementById("settings-theme");
   if (settingsTheme && typeof session.theme === "string") {
     settingsTheme.value = session.theme;
@@ -298,7 +294,7 @@ export function getSession() {
 function bindSessionControls() {
   const d = doc();
   if (!d || typeof d.getElementById !== "function") return;
-  const themeSelect = d.getElementById("theme");
+  const themeSelect = d.getElementById("settings-theme");
   if (themeSelect && typeof themeSelect.addEventListener === "function") {
     themeSelect.addEventListener("change", () => {
       persistSession({ theme: themeSelect.value });

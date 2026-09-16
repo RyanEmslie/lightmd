@@ -13,7 +13,7 @@ import {
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const INDEX_HTML = join(root, "src", "index.html");
 
-const REFERENCE_CONTROLS = ["theme"];
+const REFERENCE_CONTROLS = ["pane-order"];
 const UNTHEMED_CONTROLS = [
   "pane-layout",
   "pane-order",
@@ -197,14 +197,14 @@ test("layout, sort, and find controls use chrome theme tokens", () => {
     assert.equal(
       report.ok,
       true,
-      `#${id} is the reference pattern (#theme / settings inputs) and must keep color/background/border theme tokens: missing ${report.missing.join(", ")}`,
+      `#${id} is the reference pattern (layout-bar / settings inputs) and must keep color/background/border theme tokens: missing ${report.missing.join(", ")}`,
     );
   }
   const failures = missingTokenFailures(rules, UNTHEMED_CONTROLS);
   assert.equal(
     failures.length,
     0,
-    `#pane-layout, #pane-order, #explorer-sort, and #find-query must use theme tokens --bg or --bg-elevated, --fg, and --border for background/color/border (same pattern as #theme / settings inputs). ${failures.join("; ")}`,
+    `#pane-layout, #pane-order, #explorer-sort, and #find-query must use theme tokens --bg or --bg-elevated, --fg, and --border for background/color/border (same pattern as settings inputs). ${failures.join("; ")}`,
   );
 });
 

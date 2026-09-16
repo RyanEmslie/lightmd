@@ -337,7 +337,7 @@ if (workspaceResults) {
   });
 }
 
-const themeSelect = document.getElementById("theme");
+const themeSelect = document.getElementById("settings-theme");
 if (themeSelect) {
   themeSelect.addEventListener("change", (event) => {
     setTheme(event.target.value);

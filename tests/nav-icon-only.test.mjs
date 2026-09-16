@@ -235,6 +235,7 @@ function hideButtonsInNav(html, buttonsInChrome) {
     const inLayout = layout.includes(btn.html);
     const inExplorer = explorerChrome.includes(btn.html);
     if (!inLayout && !inExplorer) return false;
+    if (/^(preview|editor)$/i.test(btn.text)) return false;
     if (HIDE_SHOW_RE.test(btn.text)) return true;
     const pane = btn.attrs["data-pane-toggle"];
     return Boolean(pane);

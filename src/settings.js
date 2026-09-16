@@ -104,15 +104,8 @@ function fillThemeSelect(select, selected) {
 function syncThemeSelects() {
   const d = doc();
   if (!d) return;
-  const chrome = d.getElementById("theme");
   const settingsTheme = d.getElementById("settings-theme");
-  fillThemeSelect(chrome, theme.name);
   fillThemeSelect(settingsTheme, theme.name);
-  if (chrome && settingsTheme) {
-    const value = chrome.value || theme.name;
-    chrome.value = value;
-    settingsTheme.value = value;
-  }
 }
 
 function syncWorkspaceControls() {
@@ -121,9 +114,6 @@ function syncWorkspaceControls() {
   const sortMain = d.getElementById("explorer-sort");
   const sortSettings = d.getElementById("settings-explorer-sort");
   if (sortMain && sortSettings) sortSettings.value = sortMain.value;
-  const extMain = d.getElementById("show-extensions");
-  const extSettings = d.getElementById("settings-show-extensions");
-  if (extMain && extSettings) extSettings.checked = extMain.checked;
 }
 
 function syncHtmlJsControl() {
@@ -203,15 +193,10 @@ export function bindSettings() {
   function applyNamedTheme(value) {
     setTheme(value);
     persistSession({ theme: value });
-    const chrome = d.getElementById("theme");
     const settingsTheme = d.getElementById("settings-theme");
-    if (chrome) chrome.value = value;
     if (settingsTheme) settingsTheme.value = value;
   }
   on(d.getElementById("settings-theme"), "change", (event) => {
-    applyNamedTheme(event.target.value);
-  });
-  on(d.getElementById("theme"), "change", (event) => {
     applyNamedTheme(event.target.value);
   });
 
@@ -309,17 +294,6 @@ export function bindSettings() {
   });
   on(sortMain, "change", () => {
     if (sortSettings) sortSettings.value = sortMain.value;
-  });
-
-  const extMain = d.getElementById("show-extensions");
-  const extSettings = d.getElementById("settings-show-extensions");
-  on(extSettings, "change", () => {
-    if (!extMain) return;
-    extMain.checked = extSettings.checked;
-    extMain.dispatchEvent(new Event("change"));
-  });
-  on(extMain, "change", () => {
-    if (extSettings) extSettings.checked = extMain.checked;
   });
 
   syncFromState();

@@ -502,6 +502,15 @@ function syncLayoutControls() {
       }
       continue;
     }
+    const keepLabel = /^(toggle-preview|toggle-editor)$/.test(
+      String(btn.id || btn.getAttribute?.("id") || ""),
+    );
+    if (keepLabel) {
+      if (typeof btn.setAttribute === "function") {
+        btn.setAttribute("aria-pressed", pressed);
+      }
+      continue;
+    }
     const label = open ? "Hide" : "Show";
     if (typeof btn.setAttribute === "function") {
       btn.setAttribute("aria-pressed", pressed);

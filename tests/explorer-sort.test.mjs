@@ -62,7 +62,7 @@ test("explorer has a sort control (name vs modified)", async () => {
   }
 });
 
-test("explorer has an extensions toggle", () => {
+test("Settings has a show extensions toggle", () => {
   const rt = bootSorted();
   try {
     assert.equal(rt.el("show-extensions").tagName, "INPUT");

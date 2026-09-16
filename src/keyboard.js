@@ -28,7 +28,10 @@ function cyclePalette(current, delta) {
 
 function cycleTheme(delta) {
   const d = doc();
-  const select = d && typeof d.getElementById === "function" ? d.getElementById("theme") : null;
+  const select =
+    d && typeof d.getElementById === "function"
+      ? d.getElementById("settings-theme")
+      : null;
   const current = (select && select.value) || theme.name;
   const next = cyclePalette(current, delta);
   setTheme(next);
