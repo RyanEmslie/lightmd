@@ -340,6 +340,9 @@ function syncThemeSelects(name) {
     const el = d.getElementById(id);
     if (el) el.value = name;
   }
+  for (const card of d.querySelectorAll?.("[data-theme-name]") || []) {
+    card.setAttribute("aria-pressed", card.getAttribute("data-theme-name") === name ? "true" : "false");
+  }
 }
 
 export function setTheme(name) {

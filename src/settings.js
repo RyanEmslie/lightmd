@@ -8,7 +8,7 @@ import { session, persistSession } from "./session.js";
 import { htmlJs, setHtmlJsEnabled } from "./html-viewer.js";
 import { preview } from "./preview.js";
 import { findOptions } from "./find.js";
-import { layout, persistLayout } from "./layout.js";
+import { layout, persistLayout, setLayout } from "./layout.js";
 
 export {
   palettes,
@@ -57,19 +57,34 @@ function editorApi() {
 }
 
 export function openSettings() {
-  const panel = doc()?.getElementById("settings");
+  const d = doc();
+  const panel = d?.getElementById("settings");
+  const shell = d?.getElementById("shell");
   if (panel) panel.hidden = false;
+  if (shell) {
+    shell.hidden = true;
+    if (shell.style) shell.style.display = "none";
+  }
 }
 
 export function closeSettings() {
-  const panel = doc()?.getElementById("settings");
+  const d = doc();
+  const panel = d?.getElementById("settings");
+  const shell = d?.getElementById("shell");
   if (panel) panel.hidden = true;
+  if (shell) {
+    shell.hidden = false;
+    if (shell.style) shell.style.display = "";
+    setLayout({ open: { ...layout.open }, order: layout.order.slice() });
+  }
 }
 
 export function toggleSettings() {
-  const panel = doc()?.getElementById("settings");
+  const d = doc();
+  const panel = d?.getElementById("settings");
   if (!panel) return;
-  panel.hidden = !panel.hidden;
+  if (panel.hidden) openSettings();
+  else closeSettings();
 }
 
 function applyPreviewFont() {
@@ -101,11 +116,49 @@ function fillThemeSelect(select, selected) {
   if (typeof selected === "string") select.value = selected;
 }
 
+function applyNamedTheme(value) {
+  setTheme(value);
+  persistSession({ theme: value });
+}
+
+function syncThemeCards() {
+  const d = doc();
+  const container = d?.getElementById("theme-cards");
+  if (!container || typeof d.createElement !== "function") return;
+  if (typeof container.replaceChildren === "function") container.replaceChildren();
+  else container.innerHTML = "";
+  for (const name of paletteNames()) {
+    const palette = palettes[name];
+    const button = d.createElement("button");
+    button.type = "button";
+    button.className = "theme-swatch";
+    button.dataset.themeName = name;
+    button.setAttribute("aria-pressed", name === theme.name ? "true" : "false");
+    button.setAttribute("aria-label", `Use ${name} theme`);
+    button.style.setProperty("--theme-bg", palette["--bg"]);
+    button.style.setProperty("--theme-surface", palette["--bg-elevated"]);
+    button.style.setProperty("--theme-fg", palette["--fg"]);
+    button.style.setProperty("--theme-fg-muted", palette["--fg-muted"]);
+    button.style.setProperty("--theme-border", palette["--border"]);
+    button.style.setProperty("--theme-highlight", palette["--accent"]);
+    const preview = d.createElement("span");
+    preview.className = "theme-swatch-preview";
+    for (let index = 0; index < 3; index += 1) preview.append(d.createElement("i"));
+    const label = d.createElement("span");
+    label.className = "theme-swatch-label";
+    label.textContent = name;
+    button.append(preview, label);
+    button.addEventListener("click", () => applyNamedTheme(name));
+    container.append(button);
+  }
+}
+
 function syncThemeSelects() {
   const d = doc();
   if (!d) return;
   const settingsTheme = d.getElementById("settings-theme");
   fillThemeSelect(settingsTheme, theme.name);
+  syncThemeCards();
 }
 
 function syncWorkspaceControls() {
@@ -190,14 +243,40 @@ export function bindSettings() {
     closeSettings();
   });
 
-  function applyNamedTheme(value) {
-    setTheme(value);
-    persistSession({ theme: value });
+  function applySelectedTheme(value) {
+    applyNamedTheme(value);
     const settingsTheme = d.getElementById("settings-theme");
     if (settingsTheme) settingsTheme.value = value;
+    syncThemeCards();
   }
   on(d.getElementById("settings-theme"), "change", (event) => {
-    applyNamedTheme(event.target.value);
+    applySelectedTheme(event.target.value);
+  });
+
+  for (const item of d.querySelectorAll?.("[data-settings-target]") || []) {
+    on(item, "click", () => {
+      const target = d.getElementById(`settings-${item.getAttribute("data-settings-target")}`);
+      if (target?.scrollIntoView) target.scrollIntoView({ behavior: "smooth", block: "start" });
+      for (const nav of d.querySelectorAll?.("[data-settings-target]") || []) {
+        nav.classList?.toggle("is-active", nav === item);
+      }
+    });
+  }
+  on(d.getElementById("settings-search"), "input", (event) => {
+    const query = String(event.target.value || "").trim().toLowerCase();
+    const sections = [...(d.querySelectorAll?.("[data-settings-section]") || [])];
+    let matches = 0;
+    for (const section of sections) {
+      const match = !query || String(section.textContent || "").toLowerCase().includes(query);
+      section.hidden = !match;
+      if (match) matches += 1;
+    }
+    for (const item of d.querySelectorAll?.("[data-settings-target]") || []) {
+      const target = d.getElementById(`settings-${item.getAttribute("data-settings-target")}`);
+      item.hidden = !!query && !target?.hidden;
+    }
+    const noResults = d.getElementById("settings-no-results");
+    if (noResults) noResults.hidden = matches !== 0;
   });
 
   on(d.getElementById("editor-font-size"), "change", (event) => {

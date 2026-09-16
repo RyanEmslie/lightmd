@@ -251,6 +251,42 @@ function installDocument() {
   return doc;
 }
 
+function installPaneDocument() {
+  const panes = new Map();
+  const paneIds = ["explorer", "editor", "preview"];
+  for (const id of paneIds) {
+    panes.set(id, {
+      id,
+      hidden: false,
+      style: {},
+      classList: {
+        add() {},
+        remove() {},
+      },
+      getAttribute() {
+        return null;
+      },
+      removeAttribute() {},
+      setAttribute() {},
+      appendChild() {},
+      addEventListener() {},
+    });
+  }
+  const shell = { style: {}, appendChild() {} };
+  const doc = {
+    getElementById(id) {
+      if (id === "shell") return shell;
+      return panes.get(id) || null;
+    },
+    querySelectorAll() {
+      return [];
+    },
+    addEventListener() {},
+  };
+  globalThis.document = doc;
+  return { doc, panes, shell };
+}
+
 async function importLayoutFresh() {
   installLocalStorage();
   installDocument();
@@ -316,6 +352,39 @@ test("getLayout returns the real open state (no __lightmdPaneLayoutMock)", async
       mod.getLayout()?.open?.explorer,
       false,
       "after collapsePane('explorer', true), getLayout().open.explorer must be false",
+    );
+  } finally {
+    globalThis.document = prevDoc;
+    globalThis.localStorage = prevLs;
+  }
+});
+
+test("reopening a pane after both content panes are hidden restores its grid column", async () => {
+  const prevDoc = globalThis.document;
+  const prevLs = globalThis.localStorage;
+  try {
+    const { panes, shell } = installPaneDocument();
+    installLocalStorage();
+    const href = pathToFileURL(join(srcDir, "layout.js")).href;
+    const mod = await import(`${href}?pane-layout-reopen=${Date.now()}-${Math.random()}`);
+
+    mod.setLayout("three-pane");
+    mod.collapsePane("editor", true);
+    mod.collapsePane("preview", true);
+    assert.equal(
+      shell.style.gridTemplateColumns,
+      "minmax(240px, 1fr)",
+    );
+
+    mod.collapsePane("preview", false);
+    assert.equal(
+      shell.style.gridTemplateColumns,
+      "minmax(240px, 1fr) minmax(160px, 1fr)",
+    );
+    assert.equal(
+      panes.get("preview").style.gridColumn,
+      "2",
+      "reopened preview must stay anchored to its original grid track",
     );
   } finally {
     globalThis.document = prevDoc;

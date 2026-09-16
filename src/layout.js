@@ -123,6 +123,13 @@ function visiblePaneIds() {
   return layout.order.filter((id) => isPaneId(id) && layout.open[id] !== false);
 }
 
+function relaxContentWidths() {
+  if (layout.open.editor !== false && layout.open.preview !== false) {
+    layout.fixed.editor = false;
+    layout.fixed.preview = false;
+  }
+}
+
 function paneWidth(id) {
   const d = doc();
   const el = d && typeof d.getElementById === "function" ? d.getElementById(id) : null;
@@ -440,10 +447,25 @@ function applyLayoutToDom() {
   if (!d || typeof d.getElementById !== "function") return;
   const shell = d.getElementById("shell");
   const cols = [];
-  for (const id of layout.order) {
+  const visibleContent = layout.order.filter(
+    (id) => id !== "explorer" && layout.open[id] !== false,
+  );
+  for (const [index, id] of layout.order.entries()) {
     if (!isPaneId(id)) continue;
-    cols.push(columnFor(id));
-    applyPane(d.getElementById(id), layout.open[id] !== false);
+    const open = layout.open[id] !== false;
+    const el = d.getElementById(id);
+    applyPane(el, open);
+    if (id === "explorer") {
+      if (el?.style) el.style.gridColumn = "1";
+      cols.push(columnFor(id));
+      continue;
+    }
+    if (open) {
+      if (el?.style) el.style.gridColumn = String(visibleContent.indexOf(id) + 2);
+      cols.push(columnFor(id));
+    } else if (el?.style) {
+      el.style.gridColumn = "";
+    }
   }
   if (shell && shell.style) {
     shell.style.gridTemplateColumns = cols.join(" ");
@@ -661,6 +683,7 @@ export function restoreLayout() {
 export function collapsePane(id, collapsed) {
   if (!isPaneId(id)) return;
   layout.open[id] = !collapsed;
+  relaxContentWidths();
   applyLayoutToDom();
   persistLayout();
 }
@@ -699,6 +722,7 @@ export function setLayout(nameOrState) {
   } else {
     return;
   }
+  relaxContentWidths();
   applyLayoutToDom();
   persistLayout();
 }
@@ -716,6 +740,10 @@ export function reorderPanes(order) {
 
 export function getLayout() {
   return layout;
+}
+
+export function refreshLayout() {
+  applyLayoutToDom();
 }
 
 function bindLayoutControls() {
@@ -781,3 +809,7 @@ try {
 } catch {
   // mock document has no addEventListener
 }
+
+try {
+  globalThis.lightmdRefreshLayout = refreshLayout;
+} catch {}
