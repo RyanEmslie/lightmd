@@ -17,8 +17,6 @@ const REFERENCE_CONTROLS = ["pane-order"];
 const UNTHEMED_CONTROLS = [
   "pane-layout",
   "pane-order",
-  "explorer-sort",
-  "find-query",
 ];
 
 const FG_VAR = /var\(\s*--fg\s*\)/;
@@ -204,7 +202,7 @@ test("layout, sort, and find controls use chrome theme tokens", () => {
   assert.equal(
     failures.length,
     0,
-    `#pane-layout, #pane-order, #explorer-sort, and #find-query must use theme tokens --bg or --bg-elevated, --fg, and --border for background/color/border (same pattern as settings inputs). ${failures.join("; ")}`,
+    `#pane-layout and #pane-order must use theme tokens --bg or --bg-elevated, --fg, and --border for background/color/border (same pattern as settings inputs). ${failures.join("; ")}`,
   );
 });
 
@@ -250,7 +248,7 @@ test("setTheme updates documentElement vars and control rules use them", () => {
   assert.equal(
     failures.length,
     0,
-    `control rules for #pane-layout, #pane-order, #explorer-sort, and #find-query must still reference var(--fg) / var(--bg or --bg-elevated) / var(--border) so they follow chrome CSS variables. ${failures.join("; ")}`,
+    `control rules for #pane-layout and #pane-order must still reference var(--fg) / var(--bg or --bg-elevated) / var(--border) so they follow chrome CSS variables. ${failures.join("; ")}`,
   );
 });
 

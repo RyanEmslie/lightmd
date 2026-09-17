@@ -3,6 +3,7 @@ import { EditorState, Compartment } from "@codemirror/state";
 import { indentUnit } from "@codemirror/language";
 import { defaultKeymap, history, historyKeymap } from "@codemirror/commands";
 import { markdown, markdownLanguage } from "@codemirror/lang-markdown";
+import { openSearchPanel, searchKeymap } from "@codemirror/search";
 import { parseFrontmatter } from "./frontmatter.js";
 import { cancelAutosave, scheduleAutoSave } from "./autosave.js";
 import {
@@ -107,7 +108,7 @@ applyTheme();
 
 const extensions = [
   history(),
-  keymap.of([...defaultKeymap, ...historyKeymap]),
+  keymap.of([...defaultKeymap, ...historyKeymap, ...searchKeymap]),
   markdown({ base: markdownLanguage }),
   theme,
   fontCompartment.of(editorFontTheme()),
@@ -212,31 +213,19 @@ applyFrontmatter(view.state.doc.toString());
 updateWordCount(view.state.doc.toString());
 if (previewBody) bindPreviewLinks(previewBody);
 
-const findButton = document.getElementById("find");
-const findQuery = document.getElementById("find-query");
-
 function applyFind() {
-  const needle = findQuery ? findQuery.value : "";
-  if (!needle && findQuery) findQuery.focus();
-  runFind(view, needle);
+  openSearchPanel(view);
 }
 
-const saveButton = document.getElementById("save");
-if (saveButton) {
-  saveButton.addEventListener("click", () => {
-    applyFrontmatter(view.state.doc.toString(), true);
-  });
-}
-
-if (findButton) findButton.addEventListener("click", applyFind);
-if (findQuery) {
-  findQuery.addEventListener("keydown", (event) => {
-    if (event.key === "Enter") {
-      event.preventDefault();
-      applyFind();
-    }
-  });
-}
+const writeSave = window.lightmdSave;
+window.lightmdSave = async () => {
+  applyFrontmatter(view.state.doc.toString(), true);
+  if (typeof writeSave === "function") await writeSave();
+};
+window.lightmdFind = () => {
+  applyFind();
+  return true;
+};
 
 const workspaceQuery = document.getElementById("find-workspace-query");
 const workspaceRun = document.getElementById("find-workspace-run");

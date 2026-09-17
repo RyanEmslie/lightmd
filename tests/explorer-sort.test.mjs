@@ -38,30 +38,6 @@ function bootSorted() {
   });
 }
 
-test("explorer has a sort control (name vs modified)", async () => {
-  const rt = bootSorted();
-  try {
-    const sort = rt.el("explorer-sort");
-    assert.equal(sort.tagName, "SELECT");
-    await rt.win.lightmdOpenFolder(rt.folderPath);
-    assert.deepEqual(rowPaths(rt), ["a.md", "b.md"]);
-    sort.value = "modified";
-    await dispatchChange(sort);
-    assert.deepEqual(
-      rowPaths(rt),
-      ["b.md", "a.md"],
-      "sort=modified must list newer b.md first",
-    );
-    const listed = rt.invokes.filter((i) => i.cmd === "list_workspace");
-    assert.ok(
-      listed.some((i) => i.args.sort === "modified"),
-      "list_workspace must be invoked with sort=modified",
-    );
-  } finally {
-    rt.cleanup();
-  }
-});
-
 test("Settings has a show extensions toggle", () => {
   const rt = bootSorted();
   try {

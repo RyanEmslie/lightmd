@@ -1141,9 +1141,12 @@ test("explorer editor panes save and themes are reachable from the keyboard", ()
     "explorer",
     "editor",
     "preview",
-    "save",
     "settings-theme",
   ];
+  assert.ok(
+    /\blightmdSave\b/.test(src),
+    "Save must be reachable from the keyboard via lightmdSave / Cmd+S",
+  );
   for (const id of ids) {
     assert.ok(reachable(html, id) || reachable(src, id), `missing keyboard reachability for #${id} (tabindex or native control; no tabindex=-1)`);
   }

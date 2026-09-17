@@ -11,11 +11,21 @@ function doc() {
   return typeof globalThis.document !== "undefined" ? globalThis.document : null;
 }
 
+function hasMod(event) {
+  return !!(event.ctrlKey || event.metaKey);
+}
+
 function clickId(id) {
   const d = doc();
   const el = d && typeof d.getElementById === "function" ? d.getElementById(id) : null;
   if (el && typeof el.click === "function") el.click();
   return el;
+}
+
+function callGlobal(name, ...args) {
+  const fn = globalThis[name] ?? globalThis.window?.[name];
+  if (typeof fn === "function") return fn(...args);
+  return undefined;
 }
 
 function cyclePalette(current, delta) {
@@ -46,8 +56,7 @@ function cycleTheme(delta) {
 function onKeydown(event) {
   if (!event) return;
   if (event.defaultPrevented) return;
-  if (event.metaKey && !event.ctrlKey) return;
-  if (!event.ctrlKey) return;
+  if (!hasMod(event)) return;
 
   const key = event.key;
   const code = event.code;
@@ -59,16 +68,14 @@ function onKeydown(event) {
   }
   if (!event.altKey && (key === "s" || key === "S" || code === "KeyS")) {
     event.preventDefault();
-    clickId("save");
+    if (event.shiftKey) callGlobal("lightmdSaveAs");
+    else if (typeof globalThis.lightmdSave === "function") callGlobal("lightmdSave");
+    else clickId("save");
     return;
   }
-  if (!event.altKey && (key === "f" || key === "F" || code === "KeyF")) {
+  if (!event.altKey && !event.shiftKey && (key === "f" || key === "F" || code === "KeyF")) {
     event.preventDefault();
-    const d = doc();
-    const query = d && typeof d.getElementById === "function" ? d.getElementById("find-query") : null;
-    if (query && typeof query.focus === "function") query.focus();
-    const find = d && typeof d.getElementById === "function" ? d.getElementById("find") : null;
-    if (find && typeof find.click === "function") find.click();
+    callGlobal("lightmdFind");
     return;
   }
 

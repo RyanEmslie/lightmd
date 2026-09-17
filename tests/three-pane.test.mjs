@@ -65,6 +65,50 @@ test("1px splitters using --border", () => {
   assert.match(html, /var\(--border\)/, "splitters must use --border");
 });
 
+test("settings and preview chrome sit in explorer; editor and preview meet the shell top", () => {
+  const html = loadHtml();
+  const explorer = html.match(
+    /<aside\b[^>]*\bid=["']explorer["'][^>]*>[\s\S]*?<\/aside>/i,
+  );
+  assert.ok(explorer, "missing #explorer");
+  assert.match(
+    explorer[0],
+    /\bid=["']layout-bar["']/,
+    "settings/preview chrome (#layout-bar) must live in #explorer, not as a full-width bar above the shell",
+  );
+  assert.match(
+    explorer[0],
+    /\bid=["']settings-open["']/,
+    "#settings-open must sit above the navigation, inside #explorer",
+  );
+  assert.match(
+    explorer[0],
+    /\bid=["']toggle-preview["']/,
+    "#toggle-preview must sit above the navigation, inside #explorer",
+  );
+
+  const shellIdx = html.search(/\bid=["']shell["']/i);
+  assert.ok(shellIdx >= 0, "missing #shell");
+  const beforeShell = html.slice(0, shellIdx);
+  assert.equal(
+    /\bid=["']layout-bar["']/.test(beforeShell),
+    false,
+    "#layout-bar must not precede #shell as window-wide chrome",
+  );
+
+  const css = html.replace(/<script[\s\S]*?<\/script>/gi, "");
+  assert.match(
+    css,
+    /#editor\s*,\s*#preview[\s\S]{0,200}?padding(?:-top)?\s*:\s*0/,
+    "#editor and #preview must have no top padding so they extend to the top of the page",
+  );
+  assert.match(
+    css,
+    /#editor-tabs\s*\{[^}]*margin(?:-top)?\s*:\s*0/,
+    "#editor-tabs must sit flush at the top of the editor pane (no negative/offset margin above the page)",
+  );
+});
+
 test("Cursor-style editor tab strip is allowed in #editor", () => {
   const html = loadHtml();
   assert.equal(/\bid=["']tabs["']/.test(html), false, "use #editor-tabs, not generic #tabs");

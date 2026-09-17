@@ -6,10 +6,10 @@ import { loadSourceText } from "./helpers/source.mjs";
 const FILE = "note.md";
 const BODY = "# Note\n\noriginal\n";
 
-test("chrome has a Save action (button#save)", () => {
+test("Save is available as lightmdSave", () => {
   const rt = bootApp();
   try {
-    assert.equal(rt.el("save").tagName, "BUTTON");
+    assert.equal(typeof rt.win.lightmdSave, "function");
   } finally {
     rt.cleanup();
   }
@@ -30,7 +30,7 @@ test("Save writes the editor buffer and clears dirty", async () => {
     rt.win.lightmdSetDirty(true);
     assert.equal(rt.el("dirty").hidden, false, "precondition: file is dirty");
 
-    await rt.clickAndAwait(rt.el("save"));
+    await rt.win.lightmdSave();
 
     const write = rt.writes.find(
       (w) => w.cmd === "write_workspace_file" && w.relative === FILE,

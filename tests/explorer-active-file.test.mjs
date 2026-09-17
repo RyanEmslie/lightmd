@@ -732,5 +732,21 @@ describe("explorer active file highlight", { concurrency: false }, () => {
       themed.length > 0,
       "selected file row CSS must use theme tokens (--accent and/or --bg-elevated / --fg), not a fixed hex that ignores themes",
     );
+    const blob = themed.map((r) => r.body).join("\n");
+    assert.equal(
+      /outline\s*:\s*1px\s+solid/i.test(blob),
+      false,
+      "selected file row must not use a 1px solid outline (use fill + accent, not a focus-ring box)",
+    );
+    assert.match(
+      blob,
+      /background(?:-color)?\s*:\s*var\(\s*--bg-elevated/,
+      "selected file row must fill with --bg-elevated",
+    );
+    assert.match(
+      blob,
+      /var\(\s*--accent/,
+      "selected file row must mark the active file with --accent",
+    );
   });
 });

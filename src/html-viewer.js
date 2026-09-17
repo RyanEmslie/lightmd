@@ -19,6 +19,7 @@ function sandboxValue() {
 
 function applySandbox(frame) {
   const sandbox = sandboxValue();
+  if (frame.getAttribute("sandbox") === sandbox) return;
   frame.setAttribute("sandbox", sandbox);
 }
 
@@ -63,13 +64,15 @@ function bindToggle() {
 
 export function showHtmlViewer(html) {
   bindToggle();
-  lastHtml = html ?? "";
+  const next = html ?? "";
   const frame = document.getElementById("html-viewer");
   const previewBody = document.getElementById("preview-body");
   const chrome = document.getElementById("html-js-chrome");
   if (!frame) return;
+  const same = lastHtml === next && frame.hidden === false;
+  lastHtml = next;
   applySandbox(frame);
-  frame.srcdoc = lastHtml;
+  if (!same) frame.srcdoc = lastHtml;
   frame.hidden = false;
   if (previewBody) previewBody.hidden = true;
   if (chrome) chrome.hidden = false;

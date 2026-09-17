@@ -95,3 +95,35 @@ test("folders are expandable (details/summary or aria-expanded chevron)", () => 
     "folders must be expandable (details/summary or aria-expanded chevron)",
   );
 });
+
+test("folder summaries are not name-only (folder glyph svg + label)", () => {
+  const html = loadHtml();
+  assert.match(
+    html,
+    /function\s+folderIcon\s*\(|dataset\.(?:kind|type|ext)\s*=\s*["']folder["']/,
+    "explorer must have a folderIcon helper (or mark a folder svg with data-kind/type/ext=folder)",
+  );
+  const append = html.match(/function\s+appendNode\s*\([\s\S]*?\n        \}/);
+  assert.ok(append, "missing appendNode");
+  const dirBranch = append[0];
+  assert.equal(
+    /summary\.textContent\s*=\s*displayName\(/.test(dirBranch),
+    false,
+    "folder summaries must not be text-only (summary.textContent = displayName(...))",
+  );
+  assert.ok(
+    /folderIcon\s*\(/.test(dirBranch) ||
+      /data-kind=["']folder["']/.test(dirBranch) ||
+      /dataset\.(?:kind|type|ext)\s*=\s*["']folder["']/.test(dirBranch),
+    "appendNode dir branch must attach a folder glyph, not only the folder name",
+  );
+});
+
+test("file rows reserve a disclosure gutter so names align with folders", () => {
+  const html = loadHtml();
+  assert.match(
+    html,
+    /#file-list\s+li\[data-dir=["']false["']\]::before[^}]*width:\s*12px/s,
+    "file rows must keep a 12px ::before gutter matching the folder chevron column",
+  );
+});

@@ -140,6 +140,7 @@ function stripHasLayoutWidgets(html) {
 
 function restoreChromeRemains(html) {
   if (stripHasLayoutWidgets(html)) return false;
+  if (hasThreePaneRestore(html)) return true;
   const settings = taggedById(html, "settings");
   if (settings && hasThreePaneRestore(settings.full)) return true;
   const outside = chromeOutsidePanes(html);
@@ -390,4 +391,107 @@ test("reopening a pane after both content panes are hidden restores its grid col
     globalThis.document = prevDoc;
     globalThis.localStorage = prevLs;
   }
+});
+
+function rect(width) {
+  return { width, height: 600, top: 0, left: 0, right: width, bottom: 600 };
+}
+
+test("reopening editor after both content panes hide must not push it off-screen", async () => {
+  const prevDoc = globalThis.document;
+  const prevLs = globalThis.localStorage;
+  const prevWin = globalThis.innerWidth;
+  try {
+    const { panes, shell } = installPaneDocument();
+    installLocalStorage();
+    globalThis.innerWidth = 1280;
+    if (!globalThis.window) globalThis.window = globalThis;
+    globalThis.window.innerWidth = 1280;
+    for (const [id, width] of [
+      ["explorer", 240],
+      ["editor", 520],
+      ["preview", 520],
+    ]) {
+      panes.get(id).getBoundingClientRect = () => rect(width);
+    }
+
+    const href = pathToFileURL(join(srcDir, "layout.js")).href;
+    const mod = await import(`${href}?pane-offscreen=${Date.now()}-${Math.random()}`);
+
+    mod.setLayout("three-pane");
+    mod.collapsePane("preview", true);
+    panes.get("explorer").getBoundingClientRect = () => rect(1280);
+    panes.get("editor").getBoundingClientRect = () => rect(0);
+    mod.collapsePane("editor", true);
+    assert.equal(mod.getLayout().open.editor, false);
+    assert.equal(mod.getLayout().open.preview, false);
+
+    mod.collapsePane("editor", false);
+    const cols = String(shell.style.gridTemplateColumns || "");
+    assert.match(
+      cols,
+      /minmax\(160px, 1fr\)/,
+      "reopened editor must receive a content track",
+    );
+    assert.doesNotMatch(
+      cols,
+      /minmax\(1280px/,
+      "explorer must not keep the full-window width after it was the only visible pane",
+    );
+    assert.equal(panes.get("editor").hidden, false);
+    assert.equal(panes.get("editor").style.gridColumn, "2");
+
+    mod.collapsePane("preview", false);
+    const both = String(shell.style.gridTemplateColumns || "");
+    const mins = [...both.matchAll(/minmax\((\d+)px/g)].map((m) => Number(m[1]));
+    const totalMin = mins.reduce((sum, n) => sum + n, 0);
+    assert.ok(
+      totalMin <= 1280,
+      `editor+preview tracks must fit in the window (got ${both}, min sum ${totalMin})`,
+    );
+    assert.equal(panes.get("preview").hidden, false);
+    assert.equal(panes.get("editor").style.gridColumn, "2");
+    assert.equal(panes.get("preview").style.gridColumn, "3");
+  } finally {
+    globalThis.document = prevDoc;
+    globalThis.localStorage = prevLs;
+    globalThis.innerWidth = prevWin;
+    if (globalThis.window) globalThis.window.innerWidth = prevWin;
+  }
+});
+
+test("hidden content panes must not remain display:flex in the grid", async () => {
+  const prevDoc = globalThis.document;
+  const prevLs = globalThis.localStorage;
+  try {
+    const { panes } = installPaneDocument();
+    installLocalStorage();
+    const href = pathToFileURL(join(srcDir, "layout.js")).href;
+    const mod = await import(`${href}?pane-display=${Date.now()}-${Math.random()}`);
+    mod.setLayout("three-pane");
+    mod.collapsePane("preview", true);
+    assert.equal(
+      panes.get("preview").style.display,
+      "none",
+      "hidden preview must be display:none so it cannot wrap onto a new grid row",
+    );
+    mod.collapsePane("preview", false);
+    assert.equal(
+      panes.get("preview").style.display,
+      "",
+      "shown preview must clear the inline display so CSS flex layout applies",
+    );
+  } finally {
+    globalThis.document = prevDoc;
+    globalThis.localStorage = prevLs;
+  }
+});
+
+test("CSS keeps [hidden] panes out of layout despite #editor/#preview display:flex", () => {
+  const html = loadHtml();
+  assert.match(
+    html,
+    /\.pane\[hidden\][^}]*display:\s*none\s*!important/i,
+    "hidden panes must be display:none !important so #editor/#preview { display:flex } cannot keep them in the grid",
+  );
 });

@@ -79,6 +79,52 @@ test("HTML viewer is not a general-purpose browser", () => {
   assert.equal(el("html-viewer").tagName, "IFRAME");
 });
 
+test("showHtmlViewer does not rewrite srcdoc when the HTML is unchanged", () => {
+  const frame = el("html-viewer");
+  htmlJs.enabled = false;
+  let writes = 0;
+  let current = frame.srcdoc;
+  Object.defineProperty(frame, "srcdoc", {
+    configurable: true,
+    get() {
+      return current;
+    },
+    set(value) {
+      writes += 1;
+      current = value;
+    },
+  });
+  showHtmlViewer("<p>stable</p>");
+  const afterOpen = writes;
+  assert.ok(afterOpen >= 1, "first showHtmlViewer must assign srcdoc");
+  showHtmlViewer("<p>stable</p>");
+  assert.equal(
+    writes,
+    afterOpen,
+    "re-showing the same HTML must not assign srcdoc again (iframe reload flickers the preview)",
+  );
+  showHtmlViewer("<p>changed</p>");
+  assert.equal(writes, afterOpen + 1, "changed HTML must still update srcdoc");
+});
+
+test("HTML viewer CSS isolates the iframe from sibling explorer paints", () => {
+  const htmlPath = join(fixturesDir, "..", "..", "src", "index.html");
+  const html = readFileSync(htmlPath, "utf8");
+  const css = [...html.matchAll(/<style\b[^>]*>([\s\S]*?)<\/style>/gi)]
+    .map((m) => m[1])
+    .join("\n");
+  assert.match(
+    css,
+    /#html-viewer\s*\{[^}]*(?:isolation\s*:\s*isolate|transform\s*:\s*translateZ\(\s*0\s*\)|contain\s*:\s*(?:paint|layout|strict))/i,
+    "#html-viewer must be composited separately so explorer :hover paints cannot flicker the iframe",
+  );
+  assert.match(
+    css,
+    /#explorer\s*\{[^}]*contain\s*:\s*paint|#preview\s*\{[^}]*(?:isolation\s*:\s*isolate|contain\s*:\s*paint)/i,
+    "explorer/preview must contain paints so hovering file rows does not invalidate the HTML iframe",
+  );
+});
+
 test("document scripts do not get app file or Node access", () => {
   htmlJs.enabled = false;
   showHtmlViewer(loadPageFixture());

@@ -100,8 +100,11 @@ function clampOpenPaneWidths() {
 function captureWidths() {
   const d = doc();
   if (!d || typeof d.getElementById !== "function") return;
-  for (const id of PANE_IDS) {
-    if (layout.open[id] === false) continue;
+  const vis = visiblePaneIds();
+  // A lone pane just fills leftover window space; persisting that width
+  // pushes later panes off-screen when they reopen.
+  if (vis.length < 2) return;
+  for (const id of vis) {
     const el = d.getElementById(id);
     const width = el?.getBoundingClientRect?.()?.width;
     if (typeof width === "number" && Number.isFinite(width) && width > 0) {
@@ -111,10 +114,22 @@ function captureWidths() {
   clampOpenPaneWidths();
 }
 
+function minTrackFor(id) {
+  const vis = visiblePaneIds();
+  const raw =
+    id === "explorer" || layout.fixed[id]
+      ? clampOpenWidth(layout.widths[id])
+      : MIN_PANE;
+  const others = Math.max(0, vis.length - 1);
+  if (others === 0) return raw;
+  const max = Math.max(MIN_PANE, windowSize().width - others * MIN_PANE);
+  return Math.min(raw, max);
+}
+
 function columnFor(id) {
   if (layout.open[id] === false) return "0px";
   if (id === "explorer" || layout.fixed[id]) {
-    return `minmax(${clampOpenWidth(layout.widths[id])}px, 1fr)`;
+    return `minmax(${minTrackFor(id)}px, 1fr)`;
   }
   return `minmax(${MIN_PANE}px, 1fr)`;
 }
@@ -422,6 +437,7 @@ function applyPane(el, open) {
       el.classList.remove("collapsed", "closed", "hidden", "is-collapsed");
     }
     if (el.style) {
+      el.style.display = "";
       el.style.width = "";
       el.style.minWidth = "";
       el.style.flex = "";
@@ -433,6 +449,7 @@ function applyPane(el, open) {
       el.classList.add("collapsed");
     }
     if (el.style) {
+      el.style.display = "none";
       el.style.width = "0px";
       el.style.minWidth = "0px";
       el.style.flex = "0";
@@ -524,9 +541,7 @@ function syncLayoutControls() {
       }
       continue;
     }
-    const keepLabel = /^(toggle-preview|toggle-editor)$/.test(
-      String(btn.id || btn.getAttribute?.("id") || ""),
-    );
+    const keepLabel = String(btn.id || btn.getAttribute?.("id") || "") === "toggle-preview";
     if (keepLabel) {
       if (typeof btn.setAttribute === "function") {
         btn.setAttribute("aria-pressed", pressed);

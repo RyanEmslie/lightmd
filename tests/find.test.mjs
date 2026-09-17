@@ -205,6 +205,9 @@ function hasFindAction(src) {
   ) {
     return true;
   }
+  if (/lightmdFind|openSearchPanel|searchKeymap/.test(src)) {
+    return true;
+  }
   if (/<button\b[^>]*>[\s\S]{0,80}?\bfind\b[\s\S]{0,80}?<\/button>/i.test(src)) {
     return true;
   }

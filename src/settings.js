@@ -161,13 +161,7 @@ function syncThemeSelects() {
   syncThemeCards();
 }
 
-function syncWorkspaceControls() {
-  const d = doc();
-  if (!d) return;
-  const sortMain = d.getElementById("explorer-sort");
-  const sortSettings = d.getElementById("settings-explorer-sort");
-  if (sortMain && sortSettings) sortSettings.value = sortMain.value;
-}
+function syncWorkspaceControls() {}
 
 function syncHtmlJsControl() {
   const d = doc();
@@ -362,17 +356,6 @@ export function bindSettings() {
   on(d.getElementById("settings-remember-layout"), "change", (event) => {
     layout.remember = !!event.target.checked;
     persistLayout();
-  });
-
-  const sortMain = d.getElementById("explorer-sort");
-  const sortSettings = d.getElementById("settings-explorer-sort");
-  on(sortSettings, "change", () => {
-    if (!sortMain) return;
-    sortMain.value = sortSettings.value;
-    sortMain.dispatchEvent(new Event("change"));
-  });
-  on(sortMain, "change", () => {
-    if (sortSettings) sortSettings.value = sortMain.value;
   });
 
   syncFromState();

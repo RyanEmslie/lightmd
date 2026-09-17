@@ -505,7 +505,17 @@ function installFixture(src) {
       const start = src.indexOf(pane.full);
       return btn.index >= start && btn.index < start + pane.full.length;
     })();
-    const inChrome = chrome.includes(btn.html) || (shellIdx >= 0 && btn.index < shellIdx);
+    const inLayoutBar = (() => {
+      const bar = taggedById(src, "layout-bar") || taggedById(html, "layout-bar");
+      if (!bar) return false;
+      const hay = src || html;
+      const start = hay.indexOf(bar.full);
+      return start >= 0 && btn.index >= start && btn.index < start + bar.full.length;
+    })();
+    const inChrome =
+      chrome.includes(btn.html) ||
+      inLayoutBar ||
+      (shellIdx >= 0 && btn.index < shellIdx);
     if (inExplorer && !inChrome) continue;
     const el = mockEl(btn.attrs.id || "sidebar-toggle", String(btn.attrs.class || "").split(/\s+/).filter(Boolean), "button");
     for (const [k, v] of Object.entries(btn.attrs)) {
@@ -645,7 +655,16 @@ function findSidebarToggle() {
       const start = html.indexOf(pane.full);
       return btn.index >= start && btn.index < start + pane.full.length;
     })();
-    const inChrome = chrome.includes(btn.html) || (shellIdx >= 0 && btn.index < shellIdx);
+    const inLayoutBar = (() => {
+      const bar = taggedById(html, "layout-bar");
+      if (!bar) return false;
+      const start = html.indexOf(bar.full);
+      return start >= 0 && btn.index >= start && btn.index < start + bar.full.length;
+    })();
+    const inChrome =
+      chrome.includes(btn.html) ||
+      inLayoutBar ||
+      (shellIdx >= 0 && btn.index < shellIdx);
     if (inExplorer && !inChrome) continue;
     return { el: null, from: "html", btn, id: btn.attrs.id || "" };
   }

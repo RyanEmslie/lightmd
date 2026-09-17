@@ -99,6 +99,10 @@
         padding: 0;
       }
 
+      .pane[hidden] {
+        display: none !important;
+      }
+
       .splitter {
         position: absolute;
         top: 0;
@@ -129,6 +133,7 @@
         flex-direction: column;
         background: var(--bg);
         color: var(--fg);
+        isolation: isolate;
       }
 
       #explorer-toolbar,
@@ -142,11 +147,34 @@
       #explorer-toolbar {
         flex: none;
         margin: 0;
+        padding: 8px 12px;
+      }
+
+      #name-dialog {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 8px;
+        margin: 8px 12px 0;
+        padding: 8px;
+        background: var(--bg-elevated);
+        border: 1px solid var(--border);
+        border-radius: 4px;
+      }
+
+      #name-dialog[hidden] {
+        display: none;
+      }
+
+      #name-dialog-input {
+        flex: 1;
+        min-width: 80px;
       }
 
       #layout-bar {
         flex: none;
-        padding: 8px 12px;
+        min-height: 40px;
+        padding: 4px 12px;
         box-sizing: border-box;
         background: var(--bg);
         border-bottom: 1px solid var(--border);
@@ -156,12 +184,13 @@
       #open-folder,
       #new-note,
       #new-folder,
-      #settings-open {
+      #settings-open,
+      #toggle-preview {
         display: inline-flex;
         align-items: center;
         justify-content: center;
-        width: 28px;
-        height: 28px;
+        width: 32px;
+        height: 32px;
         padding: 0;
         flex: none;
         color: var(--fg);
@@ -173,27 +202,14 @@
       #open-folder svg,
       #new-note svg,
       #new-folder svg,
-      #settings-open svg {
+      #settings-open svg,
+      #toggle-preview svg {
         display: block;
-        width: 16px;
-        height: 16px;
+        width: 20px;
+        height: 20px;
       }
 
-      #toggle-preview,
-      #toggle-editor {
-        display: inline-flex;
-        align-items: center;
-        height: 28px;
-        padding: 0 8px;
-        flex: none;
-        font: inherit;
-        color: var(--fg-muted);
-        background: var(--bg);
-        border: 1px solid var(--border);
-      }
-
-      #toggle-preview[aria-pressed="true"],
-      #toggle-editor[aria-pressed="true"] {
+      #toggle-preview[aria-pressed="true"] {
         color: var(--bg);
         background: var(--fg);
         border-color: var(--fg);
@@ -204,18 +220,15 @@
       #new-note:hover,
       #new-folder:hover,
       #settings-open:hover,
-      #toggle-preview:hover,
-      #toggle-editor:hover {
+      #toggle-preview:hover {
         background: var(--bg-elevated);
       }
 
-      #toggle-preview[aria-pressed="true"]:hover,
-      #toggle-editor[aria-pressed="true"]:hover {
+      #toggle-preview[aria-pressed="true"]:hover {
         color: var(--bg);
         background: var(--fg);
       }
 
-      #explorer-sort,
       #pane-layout,
       #pane-order,
       #settings select,
@@ -226,9 +239,9 @@
 
       #pane-layout,
       #pane-order,
-      #explorer-sort,
       #find-query,
       #find-workspace-query,
+      #name-dialog-input,
       #settings select,
       #settings input:not([type="checkbox"]):not([type="radio"]) {
         color: var(--fg);
@@ -242,7 +255,7 @@
         overflow: auto;
         list-style: none;
         margin: 8px 0 0;
-        padding: 0;
+        padding: 0 4px 8px;
       }
 
       #file-list ul {
@@ -257,40 +270,56 @@
 
       #file-list li[data-dir="false"],
       #file-list summary {
-        height: 28px;
-        line-height: 28px;
-        overflow: hidden;
-        white-space: nowrap;
-        text-overflow: ellipsis;
-      }
-
-      #file-list li[data-dir="false"] {
         display: flex;
         align-items: center;
         gap: 6px;
+        height: 28px;
+        line-height: 28px;
+        padding: 0 8px;
+        border-radius: 4px;
+        overflow: hidden;
+        white-space: nowrap;
+        text-overflow: ellipsis;
         cursor: pointer;
       }
 
-      #file-list li[data-dir="false"] svg {
+      #file-list li[data-dir="false"] {
+        color: var(--fg);
+      }
+
+      #file-list summary {
+        color: var(--fg-muted);
+        list-style: none;
+      }
+
+      #file-list details[open] > summary {
+        color: var(--fg);
+      }
+
+      #file-list li[data-dir="false"]:hover,
+      #file-list summary:hover {
+        background: var(--bg-elevated);
+      }
+
+      #file-list li[data-dir="false"] svg,
+      #file-list summary svg {
         flex: none;
-        width: 12px;
-        height: 12px;
-        color: currentColor;
+        width: 16px;
+        height: 16px;
+      }
+
+      #file-list summary > span,
+      #file-list li[data-dir="false"] > span {
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
       }
 
       #file-list li[data-dir="false"][aria-selected="true"],
       #file-list li[data-dir="false"].selected {
         background: var(--bg-elevated);
         color: var(--fg);
-        outline: 1px solid var(--accent);
-      }
-
-      #file-list summary {
-        display: flex;
-        align-items: center;
-        gap: 8px;
-        cursor: pointer;
-        list-style: none;
+        box-shadow: inset 2px 0 0 var(--accent);
       }
 
       #file-list summary::-webkit-details-marker {
@@ -301,21 +330,39 @@
         content: none;
       }
 
-      #file-list summary::before {
-        content: "▸";
+      #file-list summary::before,
+      #file-list li[data-dir="false"]::before {
+        content: "";
+        width: 12px;
+        height: 12px;
         flex: none;
       }
 
+      #file-list summary::before {
+        background: currentColor;
+        clip-path: polygon(38% 22%, 72% 50%, 38% 78%);
+      }
+
       #file-list details[open] > summary::before {
-        content: "▾";
+        clip-path: polygon(22% 38%, 78% 38%, 50% 72%);
+      }
+
+      #explorer {
+        padding: 0;
       }
 
       #editor,
       #preview {
         display: flex;
         flex-direction: column;
+        padding: 0;
         background: var(--bg);
         color: var(--fg);
+      }
+
+      #preview {
+        isolation: isolate;
+        contain: paint;
       }
 
       #editor-tabs {
@@ -323,8 +370,8 @@
         flex: none;
         flex-wrap: nowrap;
         align-items: stretch;
-        height: 24px;
-        margin: -8px -12px 8px;
+        height: 40px;
+        margin: 0;
         overflow-x: auto;
         overflow-y: hidden;
         background: var(--bg);
@@ -336,7 +383,7 @@
         display: inline-flex;
         align-items: center;
         gap: 8px;
-        height: 24px;
+        height: 40px;
         padding: 0 8px;
         box-sizing: border-box;
         flex: none;
@@ -377,8 +424,8 @@
 
       #editor-tabs [role="tab"] svg {
         display: block;
-        width: 12px;
-        height: 12px;
+        width: 16px;
+        height: 16px;
         flex: none;
       }
 
@@ -389,7 +436,12 @@
         align-items: center;
         gap: 8px;
         flex: none;
-        margin: 0 0 8px;
+        margin: 0;
+        padding: 8px 12px;
+      }
+
+      #editor-chrome:empty {
+        display: none;
       }
 
       #dirty {
@@ -445,7 +497,7 @@
         min-height: 0;
         max-height: 40%;
         margin-top: 8px;
-        padding-top: 8px;
+        padding: 8px 12px;
         border-top: 1px solid var(--border);
       }
 
@@ -502,8 +554,8 @@
         display: flex;
         flex-wrap: wrap;
         gap: 8px 16px;
-        margin: 0 0 8px;
-        padding: 0 0 8px;
+        margin: 0;
+        padding: 8px 12px;
         border-bottom: 1px solid var(--border);
         background: var(--bg-elevated);
         font-size: 12px;
@@ -527,6 +579,8 @@
         flex: 1;
         min-height: 0;
         overflow: auto;
+        padding: 12px 16px;
+        box-sizing: border-box;
         font-family: system-ui, sans-serif;
         font-size: 16px;
         line-height: 1.55;
@@ -580,10 +634,14 @@
 
       #html-viewer {
         flex: 1;
+        min-width: 0;
         min-height: 0;
         width: 100%;
         border: 0;
         background: var(--bg);
+        isolation: isolate;
+        contain: paint;
+        transform: translateZ(0);
       }
 
       #html-viewer[hidden] {
@@ -596,7 +654,8 @@
         align-items: center;
         gap: 8px;
         flex: none;
-        margin: 0 0 8px;
+        margin: 0;
+        padding: 8px 12px;
       }
 
       #html-js-chrome[hidden] {
@@ -1005,57 +1064,6 @@
     </style>
   </head>
   <body>
-    <div id="layout-bar">
-      <button
-        type="button"
-        id="settings-open"
-        aria-label="Settings"
-        title="Settings"
-      >
-        <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" focusable="false">
-          <path
-            fill="currentColor"
-            fill-rule="evenodd"
-            d="M8.6 1.5c.33 0 .62.2.74.51l.6 1.6c.42.1.82.26 1.2.45l1.55-.45a.75.75 0 0 1 .85.4l.75 1.3a.75.75 0 0 1-.13.88l-1.15 1.07c.04.3.04.61 0 .91l1.15 1.07a.75.75 0 0 1 .13.88l-.75 1.3a.75.75 0 0 1-.85.4l-1.55-.45c-.38.19-.78.35-1.2.45l-.6 1.6a.75.75 0 0 1-.74.51H7.4a.75.75 0 0 1-.74-.51l-.6-1.6a6 6 0 0 1-1.2-.45l-1.55.45a.75.75 0 0 1-.85-.4l-.75-1.3a.75.75 0 0 1 .13-.88l1.15-1.07a6 6 0 0 1 0-.91L1.64 6.22a.75.75 0 0 1-.13-.88l.75-1.3a.75.75 0 0 1 .85-.4l1.55.45c.38-.19.78-.35 1.2-.45l.6-1.6a.75.75 0 0 1 .74-.51h1.2ZM8 10.5a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5Z"
-            clip-rule="evenodd"
-          />
-        </svg>
-      </button>
-      <button
-        type="button"
-        id="sidebar-toggle"
-        data-pane-toggle="explorer"
-        aria-label="Toggle sidebar"
-        title="Toggle sidebar"
-        aria-pressed="true"
-        aria-expanded="true"
-      >
-        <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" focusable="false">
-          <rect x="1.5" y="2.5" width="13" height="11" rx="2" fill="none" stroke="currentColor" stroke-width="1.25" />
-          <rect x="1.5" y="2.5" width="4.5" height="11" rx="2" fill="currentColor" />
-        </svg>
-      </button>
-      <button
-        type="button"
-        id="toggle-preview"
-        data-pane-toggle="preview"
-        aria-pressed="true"
-        aria-label="Preview"
-        title="Preview"
-      >
-        Preview
-      </button>
-      <button
-        type="button"
-        id="toggle-editor"
-        data-pane-toggle="editor"
-        aria-pressed="true"
-        aria-label="Editor"
-        title="Editor"
-      >
-        Editor
-      </button>
-    </div>
     <section id="settings" class="settings" hidden>
       <div class="settings-shell">
         <aside class="settings-sidebar" aria-label="Settings navigation">
@@ -1075,7 +1083,7 @@
             <div class="settings-nav-heading">Workspace</div>
             <button type="button" class="settings-nav-item" data-settings-target="workspace">▦ <span>Workspace</span></button>
             <button type="button" class="settings-nav-item" data-settings-target="keyboard">⌘ <span>Keyboard</span></button>
-            <span hidden>Open folder Ctrl+O · Save Ctrl+S · Find Ctrl+F · Toggle panes Ctrl+1 Ctrl+2 Ctrl+3 · Cycle theme Ctrl+Alt+Left Ctrl+Alt+Right</span>
+            <span hidden>Open folder Ctrl+O · Save Ctrl+S · Save as Ctrl+Shift+S · Find Ctrl+F · Toggle panes Ctrl+1 Ctrl+2 Ctrl+3 · Cycle theme Ctrl+Alt+Left Ctrl+Alt+Right</span>
             <button type="button" class="settings-nav-item" data-settings-target="about">ⓘ <span>About</span></button>
             <span hidden>Version 0.0.0 · MIT License · https://github.com/clearly-bots/lightmd/LICENSE</span>
             <a hidden href="https://github.com/clearly-bots/lightmd/blob/main/LICENSE">MIT License</a>
@@ -1149,14 +1157,13 @@
               <label class="settings-field"><span>Layout</span><select id="pane-layout"><option value="three-pane" selected>Three panes</option><option value="editor-preview">Editor + preview</option><option value="editor-only">Editor only</option><option value="reader-only">Reader only</option></select></label>
               <label class="settings-field"><span>Pane order</span><select id="pane-order"><option value="editor,preview" selected>Editor, preview</option><option value="preview,editor">Preview, editor</option></select></label>
               <label class="settings-field settings-field-wide"><span>Default folder</span><input type="text" id="settings-default-folder" /></label>
-              <label class="settings-field"><span>Explorer sort</span><select id="settings-explorer-sort"><option value="name">Name</option><option value="modified">Modified</option></select></label>
               <label class="settings-toggle"><input type="checkbox" id="settings-remember-layout" checked /><span><strong>Remember window and pane layout</strong></span></label>
               <label class="settings-toggle"><input type="checkbox" id="show-extensions" checked /><span><strong>Show file extensions</strong></span></label>
             </div></div>
           </section>
           <section class="settings-section" data-settings-section="keyboard" id="settings-keyboard">
             <h2>Keyboard</h2><p class="settings-lede">Shortcuts for the most common actions.</p>
-            <div class="settings-panel settings-shortcuts"><div><span>Open folder</span><kbd>Ctrl O</kbd></div><div><span>Save</span><kbd>Ctrl S</kbd></div><div><span>Find</span><kbd>Ctrl F</kbd></div><div><span>Toggle panes</span><kbd>Ctrl 1 / 2 / 3</kbd></div><div><span>Cycle theme</span><kbd>Ctrl Alt ← / →</kbd></div></div>
+            <div class="settings-panel settings-shortcuts"><div><span>Open folder</span><kbd>Ctrl/Cmd O</kbd></div><div><span>Save</span><kbd>Ctrl/Cmd S</kbd></div><div><span>Save as</span><kbd>Ctrl/Cmd Shift S</kbd></div><div><span>Find</span><kbd>Ctrl/Cmd F</kbd></div><div><span>Toggle panes</span><kbd>Ctrl/Cmd 1 / 2 / 3</kbd></div><div><span>Cycle theme</span><kbd>Ctrl/Cmd Alt ← / →</kbd></div></div>
           </section>
           <section class="settings-section" data-settings-section="about" id="settings-about">
             <h2>About</h2><p class="settings-lede">LightMD is a local-first Markdown workspace.</p>
@@ -1168,6 +1175,55 @@
     </section>
     <div id="shell">
       <aside id="explorer" class="pane" tabindex="0">
+        <div id="layout-bar">
+          <button
+            type="button"
+            id="settings-open"
+            aria-label="Settings"
+            title="Settings"
+          >
+            <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" focusable="false">
+              <path
+                fill="currentColor"
+                fill-rule="evenodd"
+                d="M8.6 1.5c.33 0 .62.2.74.51l.6 1.6c.42.1.82.26 1.2.45l1.55-.45a.75.75 0 0 1 .85.4l.75 1.3a.75.75 0 0 1-.13.88l-1.15 1.07c.04.3.04.61 0 .91l1.15 1.07a.75.75 0 0 1 .13.88l-.75 1.3a.75.75 0 0 1-.85.4l-1.55-.45c-.38.19-.78.35-1.2.45l-.6 1.6a.75.75 0 0 1-.74.51H7.4a.75.75 0 0 1-.74-.51l-.6-1.6a6 6 0 0 1-1.2-.45l-1.55.45a.75.75 0 0 1-.85-.4l-.75-1.3a.75.75 0 0 1 .13-.88l1.15-1.07a6 6 0 0 1 0-.91L1.64 6.22a.75.75 0 0 1-.13-.88l.75-1.3a.75.75 0 0 1 .85-.4l1.55.45c.38-.19.78-.35 1.2-.45l.6-1.6a.75.75 0 0 1 .74-.51h1.2ZM8 10.5a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5Z"
+                clip-rule="evenodd"
+              />
+            </svg>
+          </button>
+          <button
+            type="button"
+            id="sidebar-toggle"
+            data-pane-toggle="explorer"
+            aria-label="Toggle sidebar"
+            title="Toggle sidebar"
+            aria-pressed="true"
+            aria-expanded="true"
+          >
+            <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" focusable="false">
+              <rect x="1.5" y="2.5" width="13" height="11" rx="2" fill="none" stroke="currentColor" stroke-width="1.25" />
+              <rect x="1.5" y="2.5" width="4.5" height="11" rx="2" fill="currentColor" />
+            </svg>
+          </button>
+          <button
+            type="button"
+            id="toggle-preview"
+            data-pane-toggle="preview"
+            aria-pressed="true"
+            aria-label="Preview"
+            title="Preview"
+          >
+            <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" focusable="false">
+              <path
+                fill="none"
+                stroke="currentColor"
+                stroke-width="1.25"
+                d="M1.75 8s2.6-4.5 6.25-4.5S14.25 8 14.25 8 11.65 12.5 8 12.5 1.75 8 1.75 8z"
+              />
+              <circle cx="8" cy="8" r="2" fill="none" stroke="currentColor" stroke-width="1.25" />
+            </svg>
+          </button>
+        </div>
         <div id="explorer-toolbar">
           <button
             type="button"
@@ -1226,11 +1282,12 @@
               />
             </svg>
           </button>
-          <label for="explorer-sort">Sort</label>
-          <select id="explorer-sort">
-            <option value="name">Name</option>
-            <option value="modified">Modified</option>
-          </select>
+        </div>
+        <div id="name-dialog" hidden>
+          <label for="name-dialog-input" id="name-dialog-title">Folder name</label>
+          <input id="name-dialog-input" type="text" autocomplete="off" />
+          <button type="button" id="name-dialog-ok">Create</button>
+          <button type="button" id="name-dialog-cancel">Cancel</button>
         </div>
         <ul id="file-list"></ul>
         <div id="find-workspace">
@@ -1251,12 +1308,7 @@
       <main id="editor" class="pane" tabindex="0">
         <div id="editor-tabs" role="tablist" aria-label="Open files"></div>
         <textarea id="editor-buffer"></textarea>
-        <div id="editor-chrome">
-          <button type="button" id="save">Save</button>
-          <button type="button" id="save-as">Save As</button>
-          <button type="button" id="find">Find</button>
-          <input type="search" id="find-query" placeholder="Find in file" autocomplete="off" />
-        </div>
+        <div id="editor-chrome"></div>
         <div id="frontmatter" hidden></div>
         <div id="editor-view"></div>
         <div class="splitter" role="separator" aria-orientation="vertical"></div>
@@ -1286,15 +1338,12 @@
         const button = document.getElementById("open-folder");
         const newNoteButton = document.getElementById("new-note");
         const newFolderButton = document.getElementById("new-folder");
-        const saveButton = document.getElementById("save");
-        const saveAsButton = document.getElementById("save-as");
         const dirtyDot = document.getElementById("dirty");
         const statusPath = document.getElementById("status-path");
         const fileList = document.getElementById("file-list");
         const buffer = document.getElementById("editor-buffer");
         const previewBody = document.getElementById("preview-body");
         const htmlViewer = document.getElementById("html-viewer");
-        const sortSelect = document.getElementById("explorer-sort");
         const extensionsToggle = document.getElementById("show-extensions");
         let workspacePath = null;
         let lastEntries = [];
@@ -1372,7 +1421,10 @@
           if (node.is_dir) {
             const details = document.createElement("details");
             const summary = document.createElement("summary");
-            summary.textContent = displayName(node.name, true);
+            summary.appendChild(folderIcon());
+            const label = document.createElement("span");
+            label.textContent = displayName(node.name, true);
+            summary.appendChild(label);
             details.appendChild(summary);
             const nested = document.createElement("ul");
             for (const child of node.children) {
@@ -1422,7 +1474,6 @@
         async function loadWorkspace(path) {
           const entries = await window.__TAURI__.core.invoke("list_workspace", {
             path,
-            sort: sortSelect.value,
           });
           lastEntries = entries;
           render(entries);
@@ -1626,21 +1677,39 @@
           const kind = fileKindOf(relative);
           const svg = createSvg("svg");
           svg.setAttribute("viewBox", "0 0 16 16");
-          svg.setAttribute("width", "12");
-          svg.setAttribute("height", "12");
+          svg.setAttribute("width", "16");
+          svg.setAttribute("height", "16");
           svg.setAttribute("aria-hidden", "true");
           svg.setAttribute("focusable", "false");
           svg.dataset.ext = kind;
           svg.dataset.type = kind;
           const path = createSvg("path");
-          path.setAttribute("fill", "currentColor");
+          const colors = { md: "#519aba", txt: "#808080", html: "#e37933" };
+          path.setAttribute("fill", colors[kind] || colors.md);
           let d = "M4 2h6l3 3v9H4zM6 8v5h1V10l1.2 2 1.2-2v3h1V8H9.2L8.2 10 7.2 8z";
           if (kind === "txt") {
             d = "M4 2h6l3 3v9H4zM6 8h6M6 10.5h5M6 13h4";
           } else if (kind === "html") {
-            d = "M3 2h7l3 3v9H3zm7 0v3h3";
+            d = "M5 3.5 2 8l3 4.5h1.6L3.7 8 6.6 3.5zm6 0h1.6L14 8l-3 4.5H9.4L12.3 8z";
           }
           path.setAttribute("d", d);
+          svg.appendChild(path);
+          return svg;
+        }
+
+        function folderIcon() {
+          const svg = createSvg("svg");
+          svg.setAttribute("viewBox", "0 0 16 16");
+          svg.setAttribute("width", "16");
+          svg.setAttribute("height", "16");
+          svg.setAttribute("aria-hidden", "true");
+          svg.setAttribute("focusable", "false");
+          svg.dataset.kind = "folder";
+          svg.dataset.type = "folder";
+          svg.dataset.ext = "folder";
+          const path = createSvg("path");
+          path.setAttribute("fill", "#dcb67a");
+          path.setAttribute("d", "M2 4.5h4.1l1.2 1.5H14V13H2z");
           svg.appendChild(path);
           return svg;
         }
@@ -1817,10 +1886,61 @@
           renderTabs();
         }
 
+        function askName(title, initial = "") {
+          const dialog = document.getElementById("name-dialog");
+          const input = document.getElementById("name-dialog-input");
+          const heading = document.getElementById("name-dialog-title");
+          const ok = document.getElementById("name-dialog-ok");
+          const cancel = document.getElementById("name-dialog-cancel");
+          if (
+            dialog &&
+            input &&
+            ok &&
+            cancel &&
+            typeof dialog.contains === "function" &&
+            dialog.contains(input)
+          ) {
+            return new Promise((resolve) => {
+              function finish(value) {
+                dialog.hidden = true;
+                ok.removeEventListener("click", onOk);
+                cancel.removeEventListener("click", onCancel);
+                input.removeEventListener("keydown", onKey);
+                resolve(value);
+              }
+              function onOk() {
+                finish(input.value);
+              }
+              function onCancel() {
+                finish(null);
+              }
+              function onKey(event) {
+                if (event.key === "Enter") {
+                  event.preventDefault();
+                  onOk();
+                } else if (event.key === "Escape") {
+                  event.preventDefault();
+                  onCancel();
+                }
+              }
+              if (heading) heading.textContent = title;
+              input.value = initial;
+              dialog.hidden = false;
+              ok.addEventListener("click", onOk);
+              cancel.addEventListener("click", onCancel);
+              input.addEventListener("keydown", onKey);
+              if (typeof input.focus === "function") input.focus();
+            });
+          }
+          if (typeof window.prompt === "function") {
+            return window.prompt(title, initial);
+          }
+          return null;
+        }
+
         async function newFolder() {
           if (!workspacePath) return;
-          const raw =
-            typeof window.prompt === "function" ? window.prompt("Folder name") : null;
+          const raw = await askName("Folder name");
           if (raw == null) return;
           const name = String(raw).trim();
           if (!name) return;
@@ -1838,11 +1958,15 @@
           if (!tauri || !tauri.core || typeof tauri.core.invoke !== "function") {
             return;
           }
-          await tauri.core.invoke("create_workspace_folder", {
-            path: workspacePath,
-            relative: name,
-          });
-          await loadWorkspace(workspacePath);
+          try {
+            await tauri.core.invoke("create_workspace_folder", {
+              path: workspacePath,
+              relative: name,
+            });
+            await loadWorkspace(workspacePath);
+          } catch (err) {
+            if (statusPath) statusPath.textContent = String(err && err.message ? err.message : err);
+          }
         }
 
         async function newNote() {
@@ -1939,10 +2063,27 @@
           return true;
         }
 
+        async function save() {
+          if (!workspacePath || !currentRelative) return;
+          const tauri = window.__TAURI__;
+          if (!tauri || !tauri.core || typeof tauri.core.invoke !== "function") {
+            return;
+          }
+          await tauri.core.invoke("write_workspace_file", {
+            path: workspacePath,
+            relative: currentRelative,
+            contents: buffer.value,
+          });
+          setDirty(false);
+          const tab = findTab(currentRelative);
+          if (tab) tab.contents = buffer.value;
+        }
+
         window.lightmdOpenFolder = applyFolder;
         window.lightmdOpenFile = applyFile;
         window.lightmdNewNote = newNote;
         window.lightmdNewFolder = newFolder;
+        window.lightmdSave = save;
         window.lightmdSaveAs = saveAs;
         window.newNote = newNote;
         window.saveAs = saveAs;
@@ -1960,9 +2101,6 @@
         }
         if (newFolderButton) {
           newFolderButton.addEventListener("click", () => newFolder());
-        }
-        if (saveAsButton) {
-          saveAsButton.addEventListener("click", () => saveAs());
         }
         if (tabStrip) {
           tabStrip.addEventListener("click", (event) => {
@@ -1987,11 +2125,6 @@
           });
         }
 
-        sortSelect.addEventListener("change", async () => {
-          if (!workspacePath) return;
-          await loadWorkspace(workspacePath);
-        });
-
         if (extensionsToggle) {
           extensionsToggle.addEventListener("change", () => {
             render(lastEntries);
@@ -2006,20 +2139,6 @@
           const relative = item.dataset.path;
           await applyFile(relative);
           persistOpenFile(relative);
-        });
-
-        saveButton.addEventListener("click", async () => {
-          if (!workspacePath || !currentRelative) return;
-          const tauri = window.__TAURI__;
-          if (!tauri) return;
-          await tauri.core.invoke("write_workspace_file", {
-            path: workspacePath,
-            relative: currentRelative,
-            contents: buffer.value,
-          });
-          setDirty(false);
-          const tab = findTab(currentRelative);
-          if (tab) tab.contents = buffer.value;
         });
 
         buffer.addEventListener("input", () => {

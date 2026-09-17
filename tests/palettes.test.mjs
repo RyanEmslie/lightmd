@@ -606,7 +606,7 @@ function classifyAccentContexts(src) {
     const ctx = src.slice(start, m.index + m[0].length + 80);
     const isDirty = /#dirty\b|dirty[-_ ]?dot|\bdirty\b/i.test(ctx);
     const isSelection =
-      /::selection|\bselection\b|cm-selection|caret-color|\.cm-selectionBackground/i.test(
+      /::selection|\bselection\b|cm-selection|caret-color|\.cm-selectionBackground|aria-selected|\.selected\b|#file-list\b/i.test(
         ctx,
       );
     const isFocus =

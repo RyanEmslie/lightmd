@@ -335,6 +335,26 @@ test("#open-folder and #new-note (and Hide if in nav header) are icon-only witho
   }
 });
 
+test("#toggle-preview is icon-only with an accessible Preview name", () => {
+  const preview = buttonById(allButtons, "toggle-preview");
+  assert.ok(preview, "missing button#toggle-preview");
+  assert.equal(
+    /preview/i.test(preview.text),
+    false,
+    `#toggle-preview must not use visible text "Preview" (got ${JSON.stringify(preview.text)}); icon-only with SVG`,
+  );
+  assert.equal(
+    isIconOnly(preview, cssRules),
+    true,
+    `#toggle-preview must be icon-only (SVG/CSS icon child), not a text button (text=${JSON.stringify(preview.text)} inner=${JSON.stringify(preview.inner.trim())})`,
+  );
+  assert.match(
+    accessibleName(preview),
+    /preview/i,
+    `#toggle-preview aria-label and/or title must convey Preview (got aria-label=${JSON.stringify(preview.attrs["aria-label"] || "")} title=${JSON.stringify(preview.attrs.title || "")})`,
+  );
+});
+
 test("tooltips/accessible names still convey Open Folder and New Note (and Save As if in nav header)", () => {
   const openFolder = buttonById(allButtons, "open-folder");
   const newNote = buttonById(allButtons, "new-note");
@@ -380,29 +400,7 @@ test("nav header / explorer chrome top row have no text-label buttons for Open F
   );
 });
 
-test("sort may remain a compact select; theme tokens keep icon contrast (color: var(--fg) or currentColor)", () => {
-  const sortTag = openTagById(html, "select", "explorer-sort");
-  assert.ok(
-    sortTag,
-    "#explorer-sort may remain a compact select and must still be a <select>",
-  );
-  assert.equal(
-    /<button\b[^>]*\bid=["']explorer-sort["']/i.test(html),
-    false,
-    "#explorer-sort must remain a select, not a text/icon button",
-  );
-  assert.ok(
-    FG_VAR.test(
-      parseDecls(
-        cssRules
-          .filter((r) => selectorTargetsId(r.selector, "explorer-sort"))
-          .map((r) => r.body)
-          .join(";"),
-      ).color || "",
-    ) || FG_VAR.test(sortTag),
-    "#explorer-sort should keep color: var(--fg) theme contrast",
-  );
-
+test("theme tokens keep icon contrast (color: var(--fg) or currentColor)", () => {
   const openFolder = buttonById(allButtons, "open-folder");
   const newNote = buttonById(allButtons, "new-note");
   assert.ok(openFolder, "missing button#open-folder");
@@ -430,8 +428,8 @@ test("sort may remain a compact select; theme tokens keep icon contrast (color: 
   }
 });
 
-test("open-folder, new-note, and save-as still exist as buttons", () => {
-  for (const id of ["open-folder", "new-note", "save-as"]) {
+test("open-folder and new-note still exist as buttons", () => {
+  for (const id of ["open-folder", "new-note"]) {
     const btn = buttonById(allButtons, id);
     assert.ok(btn, `missing button#${id}`);
     assert.equal(

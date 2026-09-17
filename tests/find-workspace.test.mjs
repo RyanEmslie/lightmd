@@ -589,10 +589,6 @@ test("findInWorkspace skips binary and non-text; only md/html/htm", async () => 
 test("index.html has a Find in workspace control and a results list", () => {
   const html = loadHtml();
   assert.ok(
-    /\bid=["']find-query["']/.test(html),
-    "#find-query (Find in file) must remain",
-  );
-  assert.ok(
     hasWorkspaceFindControl(html),
     "missing Find in workspace control (distinct from #find-query Find in file)",
   );
@@ -602,17 +598,7 @@ test("index.html has a Find in workspace control and a results list", () => {
   );
 });
 
-test("Find in file (findInBuffer / #find-query) is unchanged", async () => {
-  const html = loadHtml();
-  assert.ok(
-    /\bid=["']find-query["']/.test(html),
-    "Find in file must keep #find-query",
-  );
-  assert.match(
-    html,
-    /placeholder=["']Find in file["']/,
-    "#find-query placeholder must remain Find in file",
-  );
+test("Find in file (findInBuffer) is unchanged", async () => {
   assert.equal(
     existsSync(findFixturePath),
     true,

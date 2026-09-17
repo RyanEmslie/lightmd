@@ -182,8 +182,7 @@ fn list_workspace(path: String, sort: Option<String>) -> Result<Vec<Entry>, Stri
     let root = Path::new(&path);
     match sort.as_deref() {
         Some("modified") => sort_by_modified(root),
-        Some("name") => sort_by_name(root),
-        _ => list(root),
+        _ => sort_by_name(root),
     }
     .map_err(|e| e.to_string())
 }

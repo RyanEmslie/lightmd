@@ -749,7 +749,7 @@ test("without Save As, Save and autosave must not call write_workspace_file inve
     }
 
     const writesBefore = rt.writes.length;
-    await clickAndAwait(rt.el("save"));
+    await rt.win.lightmdSave();
     await timers.flush();
 
     const newWrites = rt.writes.slice(writesBefore);
@@ -833,7 +833,7 @@ test("saveAs({ path/root, relative or filename }) writes .md, binds currentRelat
     buffer.value = `${NEW_BODY}\nedit after bind\n`;
     buffer.dispatchEvent({ type: "input", target: buffer });
     const afterBind = rt.writes.length;
-    await clickAndAwait(rt.el("save"));
+    await rt.win.lightmdSave();
     const saveWrites = rt.writes.slice(afterBind);
     assert.ok(
       saveWrites.some((w) => normalizeRel(w.relative) === FRESH_REL),
