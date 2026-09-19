@@ -1714,6 +1714,12 @@
           return svg;
         }
 
+        function setEditorSession(active) {
+          if (window.lightmdEditor && typeof window.lightmdEditor.setEditable === "function") {
+            window.lightmdEditor.setEditable(!!active);
+          }
+        }
+
         function loadIntoEditor(body) {
           if (typeof window.lightmdCancelAutosave === "function") {
             window.lightmdCancelAutosave();
@@ -1793,6 +1799,7 @@
           markActiveFile();
           renderTabs();
           persistOpenFile(currentRelative);
+          setEditorSession(true);
         }
 
         function closeTab(relative) {
@@ -1815,6 +1822,7 @@
             renderTabs();
             persistOpenFile(null);
             clearPreview();
+            setEditorSession(false);
             return;
           }
           const next = openTabs[Math.min(i, openTabs.length - 1)];
@@ -1856,6 +1864,7 @@
             window.lightmdEditor.setDoc("");
           }
           setDirty(false);
+          setEditorSession(false);
           workspacePath = path;
           persistOpenFolder(path);
           renderTabs();
@@ -1884,6 +1893,7 @@
           loadIntoEditor(body);
           setDirty(false);
           renderTabs();
+          setEditorSession(true);
         }
 
         function askName(title, initial = "") {
@@ -1996,6 +2006,7 @@
           markActiveFile();
           renderTabs();
           persistOpenFile(null);
+          setEditorSession(true);
         }
 
         async function saveAs(spec) {

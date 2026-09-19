@@ -43,6 +43,7 @@ const lineNumberCompartment = new Compartment();
 const activeLineCompartment = new Compartment();
 const tabCompartment = new Compartment();
 const fontCompartment = new Compartment();
+const editableCompartment = new Compartment();
 
 function editorFontTheme() {
   const size = `${editorDefaults.fontSize}px`;
@@ -116,6 +117,7 @@ const extensions = [
   lineNumberCompartment.of(lineNumberExt()),
   activeLineCompartment.of(activeLineExt()),
   tabCompartment.of(tabExt()),
+  editableCompartment.of(EditorView.editable.of(false)),
   EditorView.updateListener.of((update) => {
     if (update.docChanged) {
       const text = update.state.doc.toString();
@@ -378,9 +380,16 @@ function setShowFrontmatter(on) {
   applyFrontmatter(view.state.doc.toString(), previewConfig.live);
 }
 
+function setEditable(on) {
+  view.dispatch({
+    effects: editableCompartment.reconfigure(EditorView.editable.of(!!on)),
+  });
+}
+
 window.lightmdEditor = {
   view,
   setDoc,
+  setEditable,
   lineNumbers: editorDefaults.lineNumbers,
   setLineWrapping,
   setLineNumbers,

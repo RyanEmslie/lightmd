@@ -318,21 +318,12 @@ function onSplitterDown(ev) {
   }
 }
 
-function onPointerMove(ev) {
-  if (!drag) return;
-  const x = eventClientX(ev);
-  if (x == null) return;
-  const delta = x - drag.startX;
-  applySplitterDelta(drag.left, drag.right, delta, drag.startLeft, drag.startRight);
-  persistAfterDrag(false);
+function pointerButtonDown(ev) {
+  return typeof ev?.buttons !== "number" || (ev.buttons & 1) !== 0;
 }
 
-function onPointerUp(ev) {
+function endDrag() {
   if (!drag) return;
-  const x = eventClientX(ev);
-  if (x != null) {
-    applySplitterDelta(drag.left, drag.right, x - drag.startX, drag.startLeft, drag.startRight);
-  }
   const el = drag.el;
   const pointerId = drag.pointerId;
   drag = null;
@@ -346,12 +337,37 @@ function onPointerUp(ev) {
   persistAfterDrag(true);
 }
 
+function onPointerMove(ev) {
+  if (!drag) return;
+  if (!pointerButtonDown(ev)) {
+    endDrag();
+    return;
+  }
+  const x = eventClientX(ev);
+  if (x == null) return;
+  const delta = x - drag.startX;
+  applySplitterDelta(drag.left, drag.right, delta, drag.startLeft, drag.startRight);
+  persistAfterDrag(false);
+}
+
+function onPointerUp(ev) {
+  if (!drag) return;
+  const x = eventClientX(ev);
+  if (x != null) {
+    applySplitterDelta(drag.left, drag.right, x - drag.startX, drag.startLeft, drag.startRight);
+  }
+  endDrag();
+}
+
 function ensureSplitterBound(el) {
   if (!el || boundSplitters.has(el)) return;
   if (typeof el.addEventListener !== "function") return;
   boundSplitters.add(el);
   el.addEventListener("pointerdown", onSplitterDown);
   el.addEventListener("mousedown", onSplitterDown);
+  el.addEventListener("pointerup", onPointerUp);
+  el.addEventListener("mouseup", onPointerUp);
+  el.addEventListener("lostpointercapture", onPointerUp);
 }
 
 function placeSplitters() {
@@ -402,10 +418,10 @@ function bindPointerTracking() {
   for (const t of targets) {
     if (!t || typeof t.addEventListener !== "function") continue;
     t.addEventListener("pointermove", onPointerMove);
-    t.addEventListener("pointerup", onPointerUp);
-    t.addEventListener("pointercancel", onPointerUp);
+    t.addEventListener("pointerup", onPointerUp, true);
+    t.addEventListener("pointercancel", onPointerUp, true);
     t.addEventListener("mousemove", onPointerMove);
-    t.addEventListener("mouseup", onPointerUp);
+    t.addEventListener("mouseup", onPointerUp, true);
   }
 }
 

@@ -947,10 +947,14 @@ function boot() {
   };
 
   win.lightmdEditor = {
+    editable: false,
     setDoc(text) {
       const v = text ?? "";
       const buffer = byId.get("editor-buffer");
       if (buffer) buffer.value = v;
+    },
+    setEditable(on) {
+      win.lightmdEditor.editable = !!on;
     },
   };
 
@@ -1364,8 +1368,18 @@ describe("editor tabs: open, switch, close", { concurrency: false }, () => {
         buffer == null || buffer === "",
         "closing the last tab must leave the editor buffer empty",
       );
+      assert.equal(
+        rt.win.lightmdEditor.editable,
+        false,
+        "closing the last tab (empty workspace) must make the editor not editable — type only in a new note or open file",
+      );
 
       await rt.win.lightmdOpenFile(FILE_MD);
+      assert.equal(
+        rt.win.lightmdEditor.editable,
+        true,
+        "opening a file must make the editor editable again",
+      );
       await rt.win.lightmdOpenFile(FILE_HTML);
       strip = tabStripEl(rt.doc, rt.editor);
       tabs = tabNodes(strip);

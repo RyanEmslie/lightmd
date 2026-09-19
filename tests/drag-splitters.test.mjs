@@ -928,6 +928,35 @@ test("hidden panes are skipped; splitters follow visible adjacent panes across a
   assert.equal(liveLayout().open.explorer, false);
 });
 
+test("lost mouseup must not keep resizing panes on hover", () => {
+  reset();
+  const splitter = splitters[0];
+  const startX = 240;
+  firePointer(splitter, "pointerdown", startX);
+  firePointer(globalThis, "pointermove", startX + 40, { buttons: 1 });
+  const dragged = liveLayout().widths.explorer;
+  assert.ok(
+    dragged > DEFAULT_WIDTHS.explorer,
+    "precondition: pointerdown+move must start a splitter drag",
+  );
+
+  firePointer(globalThis, "pointermove", startX + 120, { buttons: 0 });
+  const afterLostUp = liveLayout().widths.explorer;
+  assert.equal(
+    afterLostUp,
+    dragged,
+    "a hover move with buttons=0 (mouseup lost over iframe/outside) must end the drag without applying more delta",
+  );
+
+  firePointer(globalThis, "pointermove", startX + 200, { buttons: 0 });
+  firePointer(globalThis, "mousemove", startX + 240, { buttons: 0 });
+  assert.equal(
+    liveLayout().widths.explorer,
+    dragged,
+    "after the pointer button is up, further cursor movement must not keep resizing panes",
+  );
+});
+
 test("existing collapse/Hide and editor-preview layout still work", () => {
   reset();
   collapsePane("explorer", true);

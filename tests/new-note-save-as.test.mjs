@@ -550,6 +550,7 @@ function boot() {
     scheduleAutoSave();
   };
   win.lightmdEditor = {
+    editable: false,
     setDoc(text) {
       const v = text ?? "";
       state.setDocCalls.push(v);
@@ -558,6 +559,9 @@ function boot() {
       preview.replaceChildren();
       preview.innerHTML = v ? `<p>${v}</p>` : "";
       preview.textContent = v;
+    },
+    setEditable(on) {
+      win.lightmdEditor.editable = !!on;
     },
   };
 
@@ -721,6 +725,11 @@ test("newNote() clears buffer to empty md session, unbinds currentRelative, dirt
     assert.ok(
       status.trim() === "" || isUntitledCue(status),
       `#status-path must be cleared or show an untitled cue after newNote() (got ${JSON.stringify(status)})`,
+    );
+    assert.equal(
+      rt.win.lightmdEditor.editable,
+      true,
+      "newNote() must make the editor editable so typing is allowed only in a new note or open file",
     );
   } finally {
     rt.cleanup();
