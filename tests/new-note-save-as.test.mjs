@@ -18,6 +18,8 @@ const EXISTING_BODY = "already on disk — must not clobber silently\n";
 const FRESH_REL = "fresh.md";
 const PLAIN_NAME = "untitled-plain";
 const ESCAPE_REL = "../outside.md";
+const OTHER_FOLDER = "/tmp/lightmd-other-folder";
+const OTHER_BODY = "already in the other folder — must not clobber silently\n";
 
 const NEW_NOTE_FNS = [
   "lightmdNewNote",
@@ -134,6 +136,7 @@ function boot() {
   const rt = bootApp({
     folderPath: FOLDER,
     files: { [FILE_A]: BODY_A, [EXISTING_REL]: EXISTING_BODY },
+    workspaces: { [OTHER_FOLDER]: { files: { [FRESH_REL]: OTHER_BODY } } },
     dialog: { save: `${FOLDER}/${FRESH_REL}` },
     realAutosave: true,
   });
@@ -495,6 +498,34 @@ test("saveAs does not clobber an existing file without confirm, or picker/API re
       asked || rejected,
       "one clear rule: confirm before overwrite OR picker/API rejects clobber (got silent success)",
     );
+  } finally {
+    rt.cleanup();
+  }
+});
+
+test("saveAs into another folder asks before overwriting the file there", async () => {
+  const rt = boot();
+  try {
+    await openFolderAndFile(rt);
+    await invokeNewNote(rt);
+    rt.el("editor-buffer").value = "draft meant for the other folder\n";
+    rt.state.confirmResult = false;
+    rt.backend.dialog.save = `${OTHER_FOLDER}/${FRESH_REL}`;
+
+    const saveAs = resolveSaveAs(rt);
+    assert.ok(typeof saveAs === "function", "missing saveAs()");
+    await saveAs();
+
+    assert.ok(
+      rt.confirms.some((message) => message.includes(FRESH_REL)),
+      "Save As must check the folder it writes to and confirm before overwriting",
+    );
+    assert.equal(
+      rt.backend.read(OTHER_FOLDER, FRESH_REL),
+      OTHER_BODY,
+      "cancelling the confirm must leave the other folder's file untouched",
+    );
+    assert.equal(rt.files.has(FRESH_REL), false, "nothing may land in the workspace instead");
   } finally {
     rt.cleanup();
   }
