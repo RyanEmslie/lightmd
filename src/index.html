@@ -1702,7 +1702,7 @@
             dirty: false,
             modifiedMs: null,
             eol: "\n",
-            conflict: null, // the open "changed on disk" question, if any
+            saving: null, // the last save in this tab's queue
             putOff: false, // the user chose to keep editing over a conflict
           };
         }
@@ -1898,48 +1898,50 @@
           return /^conflict:/.test(String(err && err.message ? err.message : err));
         }
 
-        // Saves a file tab's text. Resolves false, with the error shown, when
-        // it can't, or when the user keeps editing over a conflict.
-        async function saveTab(tab) {
-          if (!tab || tab.relative == null || tab.root == null) return false;
-          if (tab.conflict) return tab.conflict;
-          try {
-            await writeTab(tab, tabText(tab));
-          } catch (err) {
-            if (isConflict(err)) return resolveConflict(tab);
-            showSaveError();
-            return false;
-          }
-          clearSaveError();
-          return true;
+        // Saves a file tab's text. Saves of a tab queue up, so each write
+        // carries the modified time the one before it returned. Resolves false,
+        // with the error shown, when it can't, or when the user keeps editing
+        // over a conflict. An `auto` save (autosave, a flush) is skipped if the
+        // tab is clean by its turn or the user put off its conflict.
+        function saveTab(tab, auto = false) {
+          if (!tab || tab.relative == null || tab.root == null) return Promise.resolve(false);
+          const run = (tab.saving || Promise.resolve()).then(async () => {
+            if (auto && (!tab.dirty || tab.putOff)) return false;
+            try {
+              await writeTab(tab, tabText(tab));
+            } catch (err) {
+              if (isConflict(err)) return resolveConflict(tab);
+              showSaveError();
+              return false;
+            }
+            clearSaveError();
+            return true;
+          });
+          tab.saving = run.catch(() => false);
+          return run;
         }
 
         // The file changed on disk since the tab read or saved it: overwrite it,
         // reload it (dropping the edit), or keep editing and decide on a later
         // Save.
-        function resolveConflict(tab) {
-          tab.conflict = (async () => {
-            const choice = await askChoice(
-              `${fileNameOf(tab.relative)} changed on disk since you opened it. Overwrite it with your version, or reload the version on disk?`,
-              { yes: "Overwrite", no: "Reload", cancel: "Keep Editing" },
-            );
-            try {
-              if (choice === "yes") await writeTab(tab, tabText(tab), true);
-              else if (choice === "no") await reloadTab(tab, true);
-            } catch {
-              showSaveError();
-              return false;
-            }
-            if (choice === "cancel") {
-              tab.putOff = true;
-              return false;
-            }
-            clearSaveError();
-            return true;
-          })().finally(() => {
-            tab.conflict = null;
-          });
-          return tab.conflict;
+        async function resolveConflict(tab) {
+          const choice = await askChoice(
+            `${fileNameOf(tab.relative)} changed on disk since you opened it. Overwrite it with your version, or reload the version on disk?`,
+            { yes: "Overwrite", no: "Reload", cancel: "Keep Editing" },
+          );
+          try {
+            if (choice === "yes") await writeTab(tab, tabText(tab), true);
+            else if (choice === "no") await reloadTab(tab, true);
+          } catch {
+            showSaveError();
+            return false;
+          }
+          if (choice === "cancel") {
+            tab.putOff = true;
+            return false;
+          }
+          clearSaveError();
+          return true;
         }
 
         // Reads the tab's file again. Unless `discard`, an edit made meanwhile wins.
@@ -1980,7 +1982,7 @@
             window.lightmdCancelAutosave();
           }
           if (!tab || !tab.dirty || !autosaveOn() || tab.putOff) return null;
-          return saveTab(tab).catch(() => false);
+          return saveTab(tab, true).catch(() => false);
         }
 
         // Before `tabs` go away: save the dirty ones autosave would save and ask
@@ -2425,10 +2427,7 @@
         window.lightmdSaveAs = saveAs;
         window.lightmdGetOpenBuffers = openBuffers;
         // autosave.js calls this when its delay is up.
-        window.lightmdAutosaveWrite = () =>
-          activeTab && activeTab.dirty && !activeTab.putOff
-            ? saveTab(activeTab)
-            : Promise.resolve(false);
+        window.lightmdAutosaveWrite = () => saveTab(activeTab, true);
         window.newNote = newNote;
         window.saveAs = saveAs;
 
