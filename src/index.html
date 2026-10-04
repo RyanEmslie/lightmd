@@ -1365,7 +1365,10 @@
         function setDirty(value) {
           dirty = !!value;
           if (dirtyDot) dirtyDot.hidden = !dirty;
-          if (activeTab) activeTab.dirty = dirty;
+          if (activeTab && activeTab.dirty !== dirty) {
+            activeTab.dirty = dirty;
+            renderTabs();
+          }
           if (!value && typeof window.lightmdCancelAutosave === "function") {
             window.lightmdCancelAutosave();
           }
@@ -1583,7 +1586,8 @@
             return !!(await tauri.dialog.ask(message));
           }
           if (typeof window.confirm === "function") {
-            return !!window.confirm(message);
+            // Tauri's dialog plugin replaces window.confirm with an async one.
+            return !!(await window.confirm(message));
           }
           return false;
         }
@@ -1802,9 +1806,85 @@
           activeTab.dirty = dirty;
         }
 
-        // Before another tab (or nothing) takes the editor.
+        function autosaveOn() {
+          const config = window.lightmdAutosave;
+          return !config || config.enabled !== false;
+        }
+
+        function showSaveError() {
+          if (typeof window.lightmdShowSaveError === "function") window.lightmdShowSaveError();
+        }
+
+        function clearSaveError() {
+          if (typeof window.lightmdClearSaveError === "function") window.lightmdClearSaveError();
+        }
+
+        // A tab's text: the editor's for the active tab.
+        function tabText(tab) {
+          return tab === activeTab && buffer ? buffer.value : tab.contents;
+        }
+
+        function setTabDirty(tab, value) {
+          if (tab === activeTab) {
+            setDirty(value);
+            return;
+          }
+          if (tab.dirty === !!value) return;
+          tab.dirty = !!value;
+          renderTabs();
+        }
+
+        // Writes `contents` to the tab's file. The tab is clean afterwards only
+        // if its text is still what was written.
+        async function writeTab(tab, contents) {
+          await window.__TAURI__.core.invoke("write_workspace_file", {
+            path: tab.root,
+            relative: tab.relative,
+            contents,
+          });
+          if (tabText(tab) === contents) setTabDirty(tab, false);
+        }
+
+        // Saves a file tab's text. Resolves false, with the error shown, when
+        // it can't.
+        async function saveTab(tab) {
+          if (!tab || tab.relative == null || tab.root == null) return false;
+          try {
+            await writeTab(tab, tabText(tab));
+          } catch {
+            showSaveError();
+            return false;
+          }
+          clearSaveError();
+          return true;
+        }
+
+        // Before another tab (or nothing) takes the editor: keep its text, and
+        // start saving the edit autosave was waiting to save. Returns that save.
         function leaveActive() {
+          const tab = activeTab;
           stashActive();
+          if (typeof window.lightmdCancelAutosave === "function") {
+            window.lightmdCancelAutosave();
+          }
+          if (!tab || !tab.dirty || !autosaveOn()) return null;
+          return saveTab(tab).catch(() => false);
+        }
+
+        // Before `tabs` go away: save the dirty ones autosave would save and ask
+        // before discarding the rest. Resolves false to keep them.
+        async function settleDirtyTabs(tabs) {
+          stashActive();
+          if (autosaveOn()) {
+            for (const tab of tabs) {
+              if (tab.dirty) await saveTab(tab);
+            }
+          }
+          stashActive();
+          const unsaved = tabs.filter((tab) => tab.dirty);
+          if (!unsaved.length) return true;
+          const names = unsaved.map((tab) => fileNameOf(tabKey(tab.relative))).join(", ");
+          return askConfirm(`Discard unsaved changes to ${names}?`);
         }
 
         // Puts `tab` in the editor, or empties it for null. The caller has
@@ -1866,6 +1946,15 @@
           close.setAttribute("aria-label", "Close");
           close.title = "Close";
           close.textContent = "×";
+          if (tab.dirty) {
+            el.dataset.dirty = "true";
+            const mark = document.createElement("span");
+            mark.className = "tab-dirty";
+            mark.setAttribute("aria-label", "Unsaved changes");
+            mark.title = "Unsaved changes";
+            mark.textContent = "●";
+            el.appendChild(mark);
+          }
           el.appendChild(close);
           return el;
         }
@@ -1879,27 +1968,36 @@
             renderTabs();
             return;
           }
-          leaveActive();
+          const flushed = leaveActive();
           showTab(tab);
           persistActiveTab();
+          return flushed;
         }
 
-        function closeTab(tab) {
+        async function closeTab(tab) {
+          if (!tab || !openTabs.includes(tab)) return false;
+          if (tab === activeTab) stashActive();
+          if (tab.dirty && !(await settleDirtyTabs([tab]))) return false;
           const i = openTabs.indexOf(tab);
-          if (i < 0) return;
+          if (i < 0) return false;
           openTabs.splice(i, 1);
           if (tab !== activeTab) {
             renderTabs();
-            return;
+            return true;
           }
           // The closed tab is gone: nothing to stash, and the next tab always loads.
           navigation += 1;
           activeTab = null;
           showTab(openTabs.length ? openTabs[Math.min(i, openTabs.length - 1)] : null);
           persistActiveTab();
+          return true;
         }
 
+        // Resolves false when the user keeps the open tabs instead.
         async function applyFolder(path) {
+          if (openTabs.some((tab) => tab.dirty) && !(await settleDirtyTabs(openTabs.slice()))) {
+            return false;
+          }
           if (typeof window.lightmdCancelAutosave === "function") {
             window.lightmdCancelAutosave();
           }
@@ -1911,6 +2009,7 @@
           persistOpenFolder(path);
           renderTabs();
           await loadWorkspace(path);
+          return true;
         }
 
         // One read per file at a time, however often it is clicked.
@@ -1946,8 +2045,9 @@
             renderTabs();
             return;
           }
-          leaveActive();
+          const flushed = leaveActive();
           showTab(tab);
+          await flushed;
         }
 
         function askName(title, initial = "") {
@@ -2036,18 +2136,20 @@
         async function newNote() {
           // A new note replaces the draft tab: confirm before blanking its text.
           const draft = findTab(null, null);
-          if (draft && draft === activeTab && dirty) {
-            const ok = await askConfirm("Discard unsaved changes?");
+          if (draft && draft === activeTab) stashActive();
+          if (draft && draft.dirty) {
+            const ok = await askConfirm("Discard unsaved changes to untitled?");
             if (!ok) return;
           }
           navigation += 1;
-          leaveActive();
+          const flushed = leaveActive();
           const tab = makeTab(null, null, "");
           if (draft && openTabs.includes(draft)) openTabs[openTabs.indexOf(draft)] = tab;
           else openTabs.push(tab);
           showTab(tab);
           clearPreview();
           persistOpenFile(null);
+          await flushed;
         }
 
         async function saveAs(spec) {
@@ -2183,9 +2285,30 @@
           const selected = await pickFolder();
           const path = folderPath(selected);
           if (!path) return;
-          await applyFolder(path);
+          if (!(await applyFolder(path))) return;
           persistOpenFolder(path);
         });
+
+        // Closing the window saves what autosave would save and asks before
+        // discarding the rest; Tauri destroys the window unless we prevent it.
+        const windowApi = window.__TAURI__ && window.__TAURI__.window;
+        const currentWindow =
+          windowApi && typeof windowApi.getCurrentWindow === "function"
+            ? windowApi.getCurrentWindow()
+            : null;
+        if (currentWindow && typeof currentWindow.onCloseRequested === "function") {
+          Promise.resolve(
+            currentWindow.onCloseRequested(async (event) => {
+              let keep = false;
+              try {
+                keep = !(await settleDirtyTabs(openTabs.slice()));
+              } catch {
+                keep = false;
+              }
+              if (keep) event.preventDefault();
+            }),
+          ).catch(() => {});
+        }
 
         if (newNoteButton) {
           newNoteButton.addEventListener("click", () => newNote());
