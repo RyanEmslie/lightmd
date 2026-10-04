@@ -1,5 +1,5 @@
 import { SearchQuery } from "@codemirror/search";
-import { RangeSetBuilder, StateEffect, StateField } from "@codemirror/state";
+import { RangeSetBuilder, StateEffect, StateField, findClusterBreak } from "@codemirror/state";
 import { Decoration, ViewPlugin } from "@codemirror/view";
 
 export const findOptions = {
@@ -16,20 +16,101 @@ function makeQuery(needle, options = findOptions) {
   });
 }
 
+const BUFFER_HIT_CAP = 10_000;
+
 export function findInBuffer(text, needle, options = findOptions) {
   const query = makeQuery(needle, options);
   if (!query.valid) return [];
   const hits = [];
   const cursor = query.getCursor(text == null ? "" : String(text));
-  while (!cursor.next().done) {
+  while (hits.length < BUFFER_HIT_CAP && !cursor.next().done) {
     hits.push({ from: cursor.value.from, to: cursor.value.to });
-    if (hits.length > 10_000) break;
   }
   return hits;
 }
 
 const WORKSPACE_HIT_CAP = 500;
 const WORKSPACE_FILE_CAP = 1024 * 1024;
+const PREVIEW_BEFORE = 80;
+const PREVIEW_AFTER = 160;
+const WORD_CHAR = /[\p{Alphabetic}\p{Number}_]/u;
+
+// CodeMirror shows (and counts offsets in) text with \n line breaks only.
+function normalizeNewlines(text) {
+  return text.indexOf("\r") === -1 ? text : text.replace(/\r\n?/g, "\n");
+}
+
+// Same word test as CodeMirror's whole-word search (grapheme clusters).
+function isWordChar(ch) {
+  return /\S/.test(ch) && WORD_CHAR.test(ch);
+}
+
+function isWholeWord(text, from, to) {
+  const before = text.slice(findClusterBreak(text, from, false), from);
+  const first = text.slice(from, findClusterBreak(text, from));
+  const last = text.slice(findClusterBreak(text, to, false), to);
+  const after = text.slice(to, findClusterBreak(text, to));
+  return (
+    (!isWordChar(before) || !isWordChar(first)) &&
+    (!isWordChar(after) || !isWordChar(last))
+  );
+}
+
+// Literal search with indexOf: findInBuffer's matches for case and whole
+// word without its per-character cost. Text whose lowercase changes length
+// (İ) or depends on context (final Σ) goes through findInBuffer instead.
+function findLiteral(text, needle, options, limit) {
+  let hay = text;
+  let pin = needle;
+  if (!options.caseSensitive) {
+    hay = text.toLowerCase();
+    if (hay.length !== text.length || text.includes("\u03a3")) {
+      return findInBuffer(text, needle, options).slice(0, limit);
+    }
+    pin = needle.toLowerCase();
+  }
+  const hits = [];
+  if (!pin) return hits;
+  for (let pos = 0; hits.length < limit; ) {
+    const from = hay.indexOf(pin, pos);
+    if (from === -1) break;
+    const to = from + pin.length;
+    if (options.wholeWord && !isWholeWord(text, from, to)) {
+      pos = from + 1;
+      continue;
+    }
+    hits.push({ from, to });
+    pos = to;
+  }
+  return hits;
+}
+
+// Matches one file's text and appends workspace hits, counting lines in a
+// single forward pass.
+function collectFileHits(relative, source, needle, options, hits) {
+  const text = normalizeNewlines(source);
+  const ranges = findLiteral(text, needle, options, WORKSPACE_HIT_CAP - hits.length);
+  let line = 0;
+  let lineStart = 0;
+  let lineEnd = text.indexOf("\n");
+  for (const { from, to } of ranges) {
+    while (lineEnd !== -1 && lineEnd < from) {
+      line += 1;
+      lineStart = lineEnd + 1;
+      lineEnd = text.indexOf("\n", lineStart);
+    }
+    const end = lineEnd === -1 ? text.length : lineEnd;
+    hits.push({
+      relative,
+      line,
+      from,
+      to,
+      preview: text
+        .slice(Math.max(lineStart, from - PREVIEW_BEFORE), Math.min(end, to + PREVIEW_AFTER))
+        .trim(),
+    });
+  }
+}
 
 function listedWorkspaceName(name) {
   return /\.(md|html|htm)$/i.test(String(name || ""));
@@ -45,23 +126,6 @@ function workspaceRelative(file) {
     file.file ??
     file.filename;
   return String(p ?? "").replaceAll("\\", "/");
-}
-
-function lineAt(text, from) {
-  let line = 0;
-  const end = Math.max(0, Math.min(from, text.length));
-  for (let i = 0; i < end; i++) {
-    if (text.charCodeAt(i) === 10) line++;
-  }
-  return line;
-}
-
-function previewAt(text, from, to) {
-  let start = Math.max(0, from);
-  while (start > 0 && text.charCodeAt(start - 1) !== 10) start--;
-  let end = Math.max(start, to);
-  while (end < text.length && text.charCodeAt(end) !== 10) end++;
-  return text.slice(start, end).trim();
 }
 
 function listedWorkspaceFiles(entries) {
@@ -123,21 +187,40 @@ export function findInWorkspace(entriesOrRoot, needle, options = findOptions) {
   const hits = [];
   for (const file of files) {
     if (hits.length >= WORKSPACE_HIT_CAP) break;
-    const ranges = findInBuffer(file.text, args.query, args.opts);
-    for (const range of ranges) {
-      if (hits.length >= WORKSPACE_HIT_CAP) break;
-      hits.push({
-        relative: file.relative,
-        line: lineAt(file.text, range.from),
-        from: range.from,
-        to: range.to,
-        preview: previewAt(file.text, range.from, range.to),
-      });
-    }
+    collectFileHits(file.relative, file.text, String(args.query), args.opts, hits);
   }
   return hits;
 }
 
+// Reads a listed file for searching, or null to skip it. stat_workspace_file
+// skips files over the cap without reading them.
+async function readForSearch(invoke, root, relative, fileCap) {
+  try {
+    const stat = await invoke("stat_workspace_file", { path: root, relative });
+    if (stat && Number(stat.size) > fileCap) return null;
+  } catch {
+    // No stat: the length check after reading still applies.
+  }
+  try {
+    return await invoke("read_workspace_file", { path: root, relative });
+  } catch {
+    return null;
+  }
+}
+
+function openBufferTexts(root, openBuffers) {
+  const texts = new Map();
+  for (const buffer of Array.isArray(openBuffers) ? openBuffers : []) {
+    if (!buffer || buffer.root !== root || typeof buffer.contents !== "string") continue;
+    const relative = workspaceRelative(buffer.relative);
+    if (relative) texts.set(relative, buffer.contents);
+  }
+  return texts;
+}
+
+// Files are matched one at a time as they are read, with a yield before
+// each, so the UI stays responsive and the hit cap stops further reads.
+// openBuffers ([{ root, relative, contents }]) replace those files' disk text.
 export async function searchWorkspace({
   root,
   needle,
@@ -146,6 +229,7 @@ export async function searchWorkspace({
   fileCap = WORKSPACE_FILE_CAP,
   yieldToUi,
   shouldAbort,
+  openBuffers = [],
 } = {}) {
   if (needle == null || String(needle) === "") return [];
   if (typeof invoke !== "function" || !root) return [];
@@ -156,28 +240,25 @@ export async function searchWorkspace({
     return [];
   }
   if (!Array.isArray(entries)) return [];
-  const files = [];
+  const buffers = openBufferTexts(root, openBuffers);
+  const query = String(needle);
+  const hits = [];
   for (const entry of entries) {
+    if (hits.length >= WORKSPACE_HIT_CAP) break;
     if (shouldAbort?.()) return [];
     if (!entry || entry.is_dir) continue;
     const relative = workspaceRelative(entry);
     if (!relative || !listedWorkspaceName(relative)) continue;
     if (typeof yieldToUi === "function") await yieldToUi();
     if (shouldAbort?.()) return [];
-    try {
-      const text = await invoke("read_workspace_file", { path: root, relative });
-      if (
-        typeof text === "string" &&
-        text.length <= fileCap &&
-        !text.includes("\0")
-      ) {
-        files.push({ relative, text });
-      }
-    } catch {
-      // skip unreadable files
-    }
+    const text = buffers.has(relative)
+      ? buffers.get(relative)
+      : await readForSearch(invoke, root, relative, fileCap);
+    if (shouldAbort?.()) return [];
+    if (typeof text !== "string" || text.length > fileCap || text.includes("\0")) continue;
+    collectFileHits(relative, text, query, options, hits);
   }
-  return findInWorkspace(files, needle, options) || [];
+  return hits;
 }
 
 function workspaceHitFrom(hitOrOpts) {
@@ -217,8 +298,14 @@ export async function openWorkspaceHit(hitOrOpts, mocks = {}) {
     ctx.view ||
     (globalThis.lightmdEditor && globalThis.lightmdEditor.view);
   if (!view) return;
-  const from = hit.from ?? hit.start ?? hit.index;
-  const to = hit.to ?? hit.end;
+  // A hit can be stale (the file changed since the search), so clamp it.
+  const docLength = view.state?.doc?.length;
+  const clamp = (n) =>
+    typeof n === "number" && typeof docLength === "number"
+      ? Math.max(0, Math.min(n, docLength))
+      : n;
+  const from = clamp(hit.from ?? hit.start ?? hit.index);
+  const to = clamp(hit.to ?? hit.end);
   let needle = ctx.needle;
   if (
     (needle == null || needle === "") &&
