@@ -1350,10 +1350,10 @@
         let currentRelative = null;
         let dirty = false;
         const tabStrip = document.getElementById("editor-tabs");
-        // Tabs: { id, root, relative, contents, dirty, modifiedMs }. A file tab
-        // keeps the folder it was opened from (root) and the file's modified
-        // time when it last read or wrote it; the untitled draft has root and
-        // relative null.
+        // Tabs: { id, root, relative, contents, dirty, modifiedMs, eol }. A file
+        // tab keeps the folder it was opened from (root), the file's modified
+        // time when it last read or wrote it, and its line ending; contents use
+        // "\n" like CodeMirror. The untitled draft has root and relative null.
         let openTabs = [];
         // The tab shown in the editor, or null when none is.
         let activeTab = null;
@@ -1700,9 +1700,34 @@
             contents: contents == null ? "" : String(contents),
             dirty: false,
             modifiedMs: null,
+            eol: "\n",
             conflict: null, // the open "changed on disk" question, if any
             putOff: false, // the user chose to keep editing over a conflict
           };
+        }
+
+        // A file's dominant line ending.
+        function lineEndingOf(text) {
+          const s = String(text ?? "");
+          const crlf = (s.match(/\r\n/g) || []).length;
+          const cr = (s.match(/\r(?!\n)/g) || []).length;
+          const lf = (s.match(/\n/g) || []).length - crlf;
+          if (crlf > lf && crlf >= cr) return "\r\n";
+          if (cr > lf && cr > crlf) return "\r";
+          return "\n";
+        }
+
+        // Text with every line break as `eol` ("\n" when omitted).
+        function withLineEnding(text, eol = "\n") {
+          const lf = String(text ?? "").replace(/\r\n?/g, "\n");
+          return eol === "\n" ? lf : lf.replace(/\n/g, eol);
+        }
+
+        // Loads what readDocument() returned into a tab.
+        function setTabDocument(tab, doc) {
+          tab.contents = withLineEnding(doc.contents);
+          tab.eol = lineEndingOf(doc.contents);
+          tab.modifiedMs = doc.modifiedMs;
         }
 
         // The folder a tab's document lives in (the draft uses the explorer's).
@@ -1856,7 +1881,11 @@
         // anyway. The tab is clean afterwards only if its text is still what
         // was written.
         async function writeTab(tab, contents, force = false) {
-          const args = { path: tab.root, relative: tab.relative, contents };
+          const args = {
+            path: tab.root,
+            relative: tab.relative,
+            contents: withLineEnding(contents, tab.eol),
+          };
           if (!force && tab.modifiedMs != null) args.expectedModifiedMs = tab.modifiedMs;
           const modified = await window.__TAURI__.core.invoke("write_workspace_file", args);
           tab.modifiedMs = typeof modified === "number" ? modified : null;
@@ -1916,8 +1945,7 @@
         async function reloadTab(tab, discard = false) {
           const doc = await readDocument(tab.root, tab.relative);
           if (!openTabs.includes(tab) || (!discard && tab.dirty)) return;
-          tab.contents = doc.contents;
-          tab.modifiedMs = doc.modifiedMs;
+          setTabDocument(tab, doc);
           tab.putOff = false;
           if (tab === activeTab) {
             loadIntoEditor(tab.contents, tab);
@@ -2131,8 +2159,8 @@
           const doc = await readDocument(root, relative);
           let tab = findTab(root, relative);
           if (!tab) {
-            tab = makeTab(root, relative, doc.contents);
-            tab.modifiedMs = doc.modifiedMs;
+            tab = makeTab(root, relative, "");
+            setTabDocument(tab, doc);
             openTabs.push(tab);
           }
           // A later click won while this file was loading: open it behind.
@@ -2298,10 +2326,11 @@
             if (!ok) return false;
           }
 
+          const eol = source ? source.eol : "\n";
           const modified = await tauri.core.invoke("write_workspace_file", {
             path: root,
             relative,
-            contents,
+            contents: withLineEnding(contents, eol),
           });
 
           // The saved tab now is that file; a tab already showing it gives way.
@@ -2319,6 +2348,7 @@
           tab.root = root;
           tab.relative = relative;
           tab.modifiedMs = typeof modified === "number" ? modified : null;
+          tab.eol = eol;
           tab.putOff = false;
           if (!shown) tab.contents = contents;
 
