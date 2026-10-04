@@ -1,6 +1,7 @@
 use std::fs;
-use std::io;
+use std::io::{self, Write};
 use std::path::{Component, Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
 
 #[derive(Clone, Debug, serde::Serialize)]
 pub struct Entry {
@@ -169,7 +170,69 @@ pub fn write_file(
             fs::create_dir_all(parent)?;
         }
     }
-    fs::write(path, contents)
+    atomic_write(&path, contents.as_ref())
+}
+
+static TEMP_COUNTER: AtomicU64 = AtomicU64::new(0);
+
+/// Writes `contents` to a temp file beside `path`, syncs it, then renames it over
+/// `path`, so a crash or full disk never leaves a truncated file behind.
+fn atomic_write(path: &Path, contents: &[u8]) -> io::Result<()> {
+    let parent = path.parent().ok_or_else(outside_workspace)?;
+    let name = path.file_name().ok_or_else(outside_workspace)?;
+    let existing = match fs::metadata(path) {
+        Ok(meta) => {
+            // Renaming over the file would bypass its own write permission.
+            fs::OpenOptions::new().write(true).open(path)?;
+            Some(meta.permissions())
+        }
+        Err(e) if e.kind() == io::ErrorKind::NotFound => None,
+        Err(e) => return Err(e),
+    };
+
+    let mut options = fs::OpenOptions::new();
+    options.write(true).create_new(true);
+    #[cfg(unix)]
+    if existing.is_some() {
+        use std::os::unix::fs::OpenOptionsExt;
+        // Keep the copy private until the original permissions are applied.
+        options.mode(0o600);
+    }
+    let (temp, file) = loop {
+        let temp = parent.join(format!(
+            ".{}.{}-{}.tmp",
+            name.to_string_lossy(),
+            std::process::id(),
+            TEMP_COUNTER.fetch_add(1, Ordering::Relaxed)
+        ));
+        match options.open(&temp) {
+            Ok(file) => break (temp, file),
+            Err(e) if e.kind() == io::ErrorKind::AlreadyExists => continue,
+            Err(e) => return Err(e),
+        }
+    };
+
+    let result = replace_with_temp(file, &temp, path, contents, existing);
+    if result.is_err() {
+        let _ = fs::remove_file(&temp);
+    }
+    result
+}
+
+fn replace_with_temp(
+    mut file: fs::File,
+    temp: &Path,
+    path: &Path,
+    contents: &[u8],
+    permissions: Option<fs::Permissions>,
+) -> io::Result<()> {
+    file.write_all(contents)?;
+    if let Some(permissions) = permissions {
+        file.set_permissions(permissions)?;
+    }
+    file.sync_all()?;
+    drop(file);
+    fs::rename(temp, path)
 }
 
 pub fn create_folder(root: &Path, relative: impl AsRef<Path>) -> io::Result<()> {
