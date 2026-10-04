@@ -3,7 +3,6 @@ use std::io::{self, Read, Write};
 use std::path::{Component, Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use tauri::Manager;
-use tauri_plugin_opener::OpenerExt;
 
 #[derive(Clone, Debug, serde::Serialize)]
 pub struct Entry {
@@ -450,13 +449,12 @@ fn invoke_handler<R: tauri::Runtime>(
 #[derive(Debug, PartialEq, Eq)]
 enum Navigation {
     Allow,
-    OpenExternal,
-    Block,
+    Deny,
 }
 
-/// Decides what happens when a webview frame tries to load `url`. WKWebView and
-/// WebKitGTK also ask for subframes, so the HTML preview's about:srcdoc,
-/// about:blank, data: and blob: documents must stay allowed.
+/// Decides whether a webview frame may load `url`. WKWebView and WebKitGTK also
+/// ask for subframes, so the HTML preview's about:srcdoc, about:blank, data: and
+/// blob: documents must stay allowed.
 fn classify_navigation(url: &tauri::Url, dev_url: Option<&tauri::Url>) -> Navigation {
     if dev_url.is_some_and(|dev| dev.origin() == url.origin()) {
         return Navigation::Allow;
@@ -465,46 +463,23 @@ fn classify_navigation(url: &tauri::Url, dev_url: Option<&tauri::Url>) -> Naviga
         "about" | "data" | "blob" => Navigation::Allow,
         "tauri" if url.host_str() == Some("localhost") => Navigation::Allow,
         "http" | "https" if url.host_str() == Some("tauri.localhost") => Navigation::Allow,
-        "http" | "https" => Navigation::OpenExternal,
-        _ => Navigation::Block,
+        _ => Navigation::Deny,
     }
 }
 
-const EXTERNAL_OPEN_INTERVAL: std::time::Duration = std::time::Duration::from_secs(1);
-
-/// At most one browser launch per second, so a scripted page cannot open a
-/// flood of browser tabs.
-fn external_open_allowed(last: Option<std::time::Instant>, now: std::time::Instant) -> bool {
-    last.is_none_or(|last| now.duration_since(last) >= EXTERNAL_OPEN_INTERVAL)
-}
-
 /// Keeps the webview on the app. A link to a website (such as Settings > About)
-/// would otherwise replace the app and drop open tabs and unsaved text, so it
-/// opens in the system browser instead.
+/// would otherwise replace the app and drop open tabs and unsaved text. Other
+/// URLs are cancelled, never opened: this hook also runs for subframes, so an
+/// untrusted HTML preview could otherwise launch the browser on every render.
 fn navigation_guard<R: tauri::Runtime>() -> tauri::plugin::TauriPlugin<R> {
-    let last_open = std::sync::Mutex::new(None);
     tauri::plugin::Builder::new("navigation-guard")
-        .on_navigation(move |webview, url| {
+        .on_navigation(|webview, url| {
             let dev_url = if tauri::is_dev() {
                 webview.config().build.dev_url.as_ref()
             } else {
                 None
             };
-            match classify_navigation(url, dev_url) {
-                Navigation::Allow => true,
-                Navigation::OpenExternal => {
-                    let now = std::time::Instant::now();
-                    let mut last = last_open.lock().unwrap_or_else(|e| e.into_inner());
-                    if external_open_allowed(*last, now) {
-                        *last = Some(now);
-                        if let Err(e) = webview.opener().open_url(url.as_str(), None::<&str>) {
-                            eprintln!("could not open {url} in the browser: {e}");
-                        }
-                    }
-                    false
-                }
-                Navigation::Block => false,
-            }
+            classify_navigation(url, dev_url) == Navigation::Allow
         })
         .build()
 }
