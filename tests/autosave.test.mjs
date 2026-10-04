@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { installFakeTimers, mockEl } from "./helpers/dom.mjs";
+import { buildTauriGlobals, createInvoke } from "./helpers/tauri.mjs";
 
 const SHORT_DELAY_MS = 10_000;
 
@@ -35,20 +36,18 @@ async function runAutosave({ enabled = true, reject = false } = {}) {
   const prevTauri = globalThis.__TAURI__;
   const prevWs = globalThis.lightmdWorkspace;
   const prevSetDirty = globalThis.lightmdSetDirty;
-  const invokes = [];
   const dirtyCalls = [];
   let dirty = true;
-
-  globalThis.__TAURI__ = {
-    core: {
-      async invoke(cmd, args = {}) {
-        invokes.push({ cmd, args });
-        if (cmd === "write_workspace_file" && reject) {
-          throw new Error("disk full");
-        }
-      },
+  const backend = createInvoke({
+    root: "/tmp/lightmd-workspace",
+    files: { "note.md": "# saved\n" },
+    onInvoke(cmd) {
+      if (cmd === "write_workspace_file" && reject) throw "disk full";
     },
-  };
+  });
+  const invokes = backend.invokes;
+
+  globalThis.__TAURI__ = buildTauriGlobals(backend.invoke).__TAURI__;
   globalThis.lightmdWorkspace = {
     path: "/tmp/lightmd-workspace",
     relative: "note.md",
@@ -67,7 +66,7 @@ async function runAutosave({ enabled = true, reject = false } = {}) {
   try {
     await timers.flush();
     await Promise.resolve();
-    return { dirty, dirtyCalls, invokes };
+    return { dirty, dirtyCalls, invokes, backend };
   } finally {
     timers.restore();
     cancelAutosave();
@@ -98,6 +97,7 @@ test("autosave on: an edit schedules a write of the editor buffer after the dela
   assert.ok(write, "autosave must invoke write_workspace_file");
   assert.equal(write.args.relative, "note.md");
   assert.equal(write.args.contents, "# dirty buffer\n");
+  assert.equal(run.backend.files.get("note.md"), "# dirty buffer\n", "the write must reach the file");
 });
 
 test("autosave off leaves dirty (no write while off)", async () => {

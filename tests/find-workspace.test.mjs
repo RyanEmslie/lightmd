@@ -14,6 +14,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { test } from "node:test";
 import { findInBuffer, findOptions, runFind } from "../src/find.js";
 import { loadSourceText } from "./helpers/source.mjs";
+import { createInvoke } from "./helpers/tauri.mjs";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const srcDir = join(root, "src");
@@ -627,25 +628,26 @@ test("searchWorkspace lists and reads via invoke, then returns nested hits", asy
     "nested/deep/hit.md": `md ${NEEDLE} here`,
     "nested/page.html": "nope",
   };
-  const invokes = [];
-  async function invoke(cmd, args = {}) {
-    invokes.push({ cmd, args });
-    if (cmd === "list_workspace") {
-      return Object.keys(files).map((relative_path) => ({
-        relative_path,
-        is_dir: false,
-      }));
-    }
-    if (cmd === "read_workspace_file") {
-      if (!(args.relative in files)) throw new Error("missing");
-      return files[args.relative];
-    }
-    throw new Error(cmd);
-  }
+  const backend = createInvoke({
+    root: "/tmp/ws",
+    files,
+    onInvoke(cmd) {
+      // Rust never lists .txt files; pretend it did, to pin the client-side filter.
+      if (cmd !== "list_workspace") return undefined;
+      return [
+        { relative_path: "ignore.txt", is_dir: false },
+        { relative_path: "nested", is_dir: true },
+        { relative_path: "nested/deep", is_dir: true },
+        { relative_path: "nested/deep/hit.md", is_dir: false },
+        { relative_path: "nested/page.html", is_dir: false },
+      ];
+    },
+  });
+  const { invokes } = backend;
   const hits = await searchWorkspace({
     root: "/tmp/ws",
     needle: NEEDLE,
-    invoke,
+    invoke: backend.invoke,
   });
   assert.ok(
     invokes.some((i) => i.cmd === "list_workspace" && i.args.path === "/tmp/ws"),

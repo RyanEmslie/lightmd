@@ -1,7 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { bootApp } from "./helpers/app.mjs";
-import { loadSourceText } from "./helpers/source.mjs";
 
 const FILE = "note.md";
 const BODY = "# Note\n\noriginal\n";
@@ -15,14 +14,32 @@ test("Save is available as lightmdSave", () => {
   }
 });
 
-test("dirty indicator is an accent dirty dot using --accent, not decoration", () => {
-  const src = loadSourceText();
-  assert.match(src, /#dirty\b|\bid=["']dirty["']/);
-  assert.match(src, /--accent/);
+test("an edit shows the dirty dot in the status strip and Save hides it", async () => {
+  const rt = bootApp({ files: { [FILE]: BODY } });
+  try {
+    const dot = rt.el("dirty");
+    assert.ok(dot, "missing #dirty in src/index.html");
+    assert.ok(rt.el("status-strip").contains(dot), "#dirty must sit in the status strip");
+    await rt.win.lightmdOpenFolder(rt.folderPath);
+    await rt.win.lightmdOpenFile(FILE);
+    assert.equal(dot.hidden, true, "a freshly opened file is clean");
+
+    const buffer = rt.el("editor-buffer");
+    buffer.value = "edited buffer\n";
+    buffer.dispatchEvent({ type: "input", bubbles: true });
+    assert.equal(dot.hidden, false, "an edit must show the dirty dot");
+    assert.ok(rt.state.scheduleCalls > 0, "an edit must schedule autosave");
+
+    await rt.win.lightmdSave();
+    assert.equal(dot.hidden, true, "Save must hide the dirty dot");
+    assert.equal(rt.files.get(FILE), "edited buffer\n", "Save must write the edit to the file");
+  } finally {
+    rt.cleanup();
+  }
 });
 
 test("Save writes the editor buffer and clears dirty", async () => {
-  const rt = bootApp({ files: new Map([[FILE, BODY]]) });
+  const rt = bootApp({ files: { [FILE]: BODY } });
   try {
     await rt.win.lightmdOpenFolder(rt.folderPath);
     await rt.win.lightmdOpenFile(FILE);

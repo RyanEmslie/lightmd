@@ -17,49 +17,39 @@ function rowLabels(rt) {
   });
 }
 
-async function dispatchChange(el) {
-  el.dispatchEvent({
-    type: "change",
-    target: el,
-    preventDefault() {},
-    stopPropagation() {},
-  });
-  const results = el._lastDispatch || [];
-  await Promise.all(results.filter((r) => r && typeof r.then === "function"));
+function bootWithFiles() {
+  return bootApp({ files: { "a.md": "A", "b.md": "B" } });
 }
 
-function bootSorted() {
-  return bootApp({
-    files: new Map([
-      ["a.md", "A"],
-      ["b.md", "B"],
-    ]),
-    modifiedOrder: ["b.md", "a.md"],
-  });
-}
-
-test("Settings has a show extensions toggle", () => {
-  const rt = bootSorted();
+test("Settings > Workspace has a show-extensions checkbox, on by default", () => {
+  const rt = bootWithFiles();
   try {
-    assert.equal(rt.el("show-extensions").tagName, "INPUT");
-    assert.equal(rt.el("show-extensions").checked, true);
+    const toggle = rt.el("show-extensions");
+    assert.ok(toggle, "missing #show-extensions in src/index.html");
+    assert.equal(toggle.tagName, "INPUT");
+    assert.equal(toggle.type, "checkbox");
+    assert.equal(toggle.checked, true, "extensions show by default");
+    assert.ok(
+      rt.el("settings-workspace").contains(toggle),
+      "the toggle must live in Settings > Workspace",
+    );
   } finally {
     rt.cleanup();
   }
 });
 
 test("hiding extensions changes displayed names but data-path/open path still includes the extension", async () => {
-  const rt = bootSorted();
+  const rt = bootWithFiles();
   try {
     await rt.win.lightmdOpenFolder(rt.folderPath);
     assert.deepEqual(rowLabels(rt), ["a.md", "b.md"]);
-    const toggle = rt.el("show-extensions");
-    toggle.checked = false;
-    await dispatchChange(toggle);
+    rt.el("show-extensions").click();
     assert.deepEqual(rowLabels(rt), ["a", "b"]);
     assert.deepEqual(rowPaths(rt), ["a.md", "b.md"]);
-    await rt.win.lightmdOpenFile("a.md");
-    assert.equal(rt.win.lightmdWorkspace.relative, "a.md");
+    const label = fileRows(rt)[0].querySelector("span");
+    await rt.clickAndAwait(label);
+    assert.equal(rt.win.lightmdWorkspace.relative, "a.md", "clicking the row opens the real path");
+    assert.equal(rt.el("editor-buffer").value, "A");
   } finally {
     rt.cleanup();
   }
