@@ -148,6 +148,29 @@ test("opening a file and toggling a pane keep every pane's scroll position", asy
   }
 });
 
+test("toggling the explorer does not reload the HTML preview", async () => {
+  const app = await launchApp();
+  try {
+    await openNote(app, { "note.md": "# Note\n", "page.html": "<p>Hello HTML</p>" });
+    await app.openFile("page.html");
+    await settleLayout(app);
+    await app.page.evaluate(() => {
+      window.__viewerLoads = 0;
+      document.getElementById("html-viewer").addEventListener("load", () => {
+        window.__viewerLoads += 1;
+      });
+    });
+    await app.page.click("#sidebar-toggle");
+    await settleLayout(app);
+    await app.page.click("#explorer-reopen-toggle");
+    await settleLayout(app);
+    assert.equal(await app.page.evaluate(() => window.__viewerLoads), 0, "moving #preview in the DOM reloads its iframe");
+    assert.deepEqual(app.errors, []);
+  } finally {
+    await app.close();
+  }
+});
+
 test("toggling the preview with the keyboard keeps focus in the editor", async () => {
   const app = await launchApp();
   try {
