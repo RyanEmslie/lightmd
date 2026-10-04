@@ -90,4 +90,6 @@ npm run tauri build
 
 ## Privacy / local-only
 
-v1 has no telemetry. File access is the opened workspace folder plus app config (theme, session, and layout). Theme, session, and layout stay on this machine (OS/localStorage). https links open via the system browser (`tauri-plugin-opener` / `openUrl`) only when the user clicks. There is no update check in v1.
+v1 has no telemetry. File access is the opened workspace folder (and any file you Save As elsewhere) plus app config (theme, session, and layout). The backend keeps file paths inside the folder the app passes it; it relies on the app's own code to pass only folders you chose. Theme, session, and layout stay on this machine (OS/localStorage). https links open via the system browser (`tauri-plugin-opener` / `openUrl`) only when the user clicks.
+
+The Markdown preview does not load remote images. HTML files open in a sandboxed frame whose Content-Security-Policy blocks remote images, stylesheets, fonts, media, frames, and form posts. JavaScript in HTML files is off by default; turning it on applies to the open file until you switch files or restart, is never saved, and its scripts still cannot fetch or load anything remote. There is no update check in v1.
