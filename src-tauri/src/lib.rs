@@ -1130,4 +1130,158 @@ mod tests {
             "read_image must be Err for an image over 20 MB"
         );
     }
+
+    type MockWebview = tauri::WebviewWindow<tauri::test::MockRuntime>;
+
+    /// Sends one IPC call the way the webview's `invoke(cmd, args)` would.
+    fn ipc(
+        webview: &MockWebview,
+        cmd: &str,
+        args: serde_json::Value,
+    ) -> Result<tauri::ipc::InvokeResponseBody, serde_json::Value> {
+        tauri::test::get_ipc_response(
+            webview,
+            tauri::webview::InvokeRequest {
+                cmd: cmd.into(),
+                callback: tauri::ipc::CallbackFn(0),
+                error: tauri::ipc::CallbackFn(1),
+                url: if cfg!(windows) {
+                    "http://tauri.localhost"
+                } else {
+                    "tauri://localhost"
+                }
+                .parse()
+                .expect("app url"),
+                body: tauri::ipc::InvokeBody::Json(args),
+                headers: Default::default(),
+                invoke_key: tauri::test::INVOKE_KEY.to_string(),
+            },
+        )
+    }
+
+    fn ipc_json(webview: &MockWebview, cmd: &str, args: serde_json::Value) -> serde_json::Value {
+        ipc(webview, cmd, args)
+            .unwrap_or_else(|e| panic!("{cmd} must succeed, got Err({e})"))
+            .deserialize()
+            .expect("JSON response")
+    }
+
+    #[test]
+    fn ipc_exposes_the_workspace_commands_with_their_js_argument_names() {
+        use serde_json::json;
+        let (root, _cleanup) = temp_workspace("ipc");
+        let png = std::fs::read(workspace_fixture().join("pic.png")).expect("fixture pic.png");
+        std::fs::write(root.join("pic.png"), &png).expect("seed pic.png");
+        let path = root.to_string_lossy().into_owned();
+
+        let app = tauri::test::mock_builder()
+            .invoke_handler(super::invoke_handler())
+            .build(tauri::test::mock_context(tauri::test::noop_assets()))
+            .expect("mock app");
+        let webview = tauri::WebviewWindowBuilder::new(&app, "main", Default::default())
+            .build()
+            .expect("mock window");
+
+        let modified = ipc_json(
+            &webview,
+            "write_workspace_file",
+            json!({ "path": path, "relative": "note.md", "contents": "one\n" }),
+        );
+        assert!(modified.is_u64(), "write_workspace_file must return modified_ms, got {modified}");
+
+        let stat = ipc_json(
+            &webview,
+            "stat_workspace_file",
+            json!({ "path": path, "relative": "note.md" }),
+        );
+        assert_eq!(stat, json!({ "modified_ms": modified, "size": 4 }));
+
+        let conflict = ipc(
+            &webview,
+            "write_workspace_file",
+            json!({
+                "path": path,
+                "relative": "note.md",
+                "contents": "two\n",
+                "expectedModifiedMs": modified.as_u64().unwrap() + 1,
+            }),
+        )
+        .expect_err("a stale expectedModifiedMs must be refused");
+        assert!(
+            conflict.as_str().is_some_and(|e| e.starts_with("conflict:")),
+            "the rejection must start with \"conflict:\", got {conflict}"
+        );
+        let same = ipc_json(
+            &webview,
+            "write_workspace_file",
+            json!({
+                "path": path,
+                "relative": "note.md",
+                "contents": "three\n",
+                "expectedModifiedMs": modified,
+            }),
+        );
+        assert!(same.is_u64(), "a matching expectedModifiedMs must write");
+        assert_eq!(
+            ipc_json(
+                &webview,
+                "read_workspace_file",
+                json!({ "path": path, "relative": "note.md" }),
+            ),
+            json!("three\n")
+        );
+
+        assert_eq!(
+            ipc_json(
+                &webview,
+                "workspace_file_exists",
+                json!({ "path": path, "relative": "note.md" }),
+            ),
+            json!(true)
+        );
+        assert_eq!(
+            ipc_json(
+                &webview,
+                "workspace_file_exists",
+                json!({ "path": path, "relative": "missing.md" }),
+            ),
+            json!(false)
+        );
+        assert!(
+            ipc(
+                &webview,
+                "workspace_file_exists",
+                json!({ "path": path, "relative": "../escape.md" }),
+            )
+            .is_err(),
+            "workspace_file_exists must reject an escape"
+        );
+
+        match ipc(
+            &webview,
+            "read_workspace_image",
+            json!({ "path": path, "relative": "pic.png" }),
+        ) {
+            Ok(tauri::ipc::InvokeResponseBody::Raw(bytes)) => assert_eq!(bytes, png),
+            other => panic!("read_workspace_image must return raw bytes, got {other:?}"),
+        }
+
+        ipc_json(
+            &webview,
+            "create_workspace_folder",
+            json!({ "path": path, "relative": "notes" }),
+        );
+        let entries = ipc_json(
+            &webview,
+            "list_workspace",
+            json!({ "path": path, "sort": "name" }),
+        );
+        assert_eq!(
+            entries,
+            json!([
+                { "relative_path": "note.md", "is_dir": false },
+                { "relative_path": "notes", "is_dir": true },
+            ])
+        );
+    }
 }

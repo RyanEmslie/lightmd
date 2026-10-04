@@ -1986,6 +1986,7 @@ name = "lightmd"
 version = "0.0.0"
 dependencies = [
  "serde",
+ "serde_json",
  "tauri",
  "tauri-build",
  "tauri-plugin-dialog",
