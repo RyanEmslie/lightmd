@@ -295,3 +295,52 @@ test("closing Settings and toggling the explorer keep a dragged editor/preview s
     await app.close();
   }
 });
+
+test("with the explorer hidden, visible controls reopen it and open Settings", async () => {
+  const app = await launchApp();
+  try {
+    await openNote(app);
+    await app.page.click("#sidebar-toggle");
+    await settleLayout(app);
+    assert.equal(await app.page.locator("#explorer").isHidden(), true, "precondition: the explorer is hidden");
+    const toggle = app.page.locator("#explorer-reopen-toggle");
+    const settings = app.page.locator("#explorer-reopen-settings");
+    assert.equal(await toggle.isVisible(), true, "a sidebar button must stay visible");
+    assert.equal(await settings.isVisible(), true, "a Settings button must stay visible");
+
+    // The controls must not sit on top of the first pane's content.
+    const rail = await app.page.locator("#explorer-reopen").boundingBox();
+    const editor = await app.page.locator("#editor").boundingBox();
+    assert.ok(editor.x >= rail.x + rail.width - 1, `the editor (x=${editor.x}) must start right of the controls (to ${rail.x + rail.width})`);
+    await assertFitsWindow(app, "with the reopen controls showing");
+
+    await settings.click();
+    assert.equal(await app.page.locator("#settings").isVisible(), true, "the Settings button opens Settings");
+    await app.page.click("#settings-close");
+    await toggle.click();
+    await settleLayout(app);
+    assert.equal(await app.page.locator("#explorer").isVisible(), true, "the sidebar button reopens the explorer");
+    assert.equal(await app.page.locator("#explorer-reopen").isHidden(), true, "the controls hide again");
+    assert.deepEqual(app.errors, []);
+  } finally {
+    await app.close();
+  }
+});
+
+test("the pane shortcuts cannot hide every pane, so a relaunch is never blank", async () => {
+  const app = await launchApp();
+  try {
+    await openNote(app);
+    await app.page.click(".cm-content");
+    for (const key of ["3", "2", "1"]) await app.page.keyboard.press(`ControlOrMeta+${key}`);
+    await settleLayout(app);
+    const shown = async () => Object.values(await paneWidths(app.page)).filter((w) => w > 0).length;
+    assert.ok((await shown()) >= 1, "a pane must stay visible");
+    await app.reload();
+    await settleLayout(app);
+    assert.ok((await shown()) >= 1, "a relaunch must show a pane");
+    assert.deepEqual(app.errors, []);
+  } finally {
+    await app.close();
+  }
+});
