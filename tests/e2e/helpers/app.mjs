@@ -92,7 +92,9 @@ function initScript(storage) {
     try {
       const res = await window.__lightmdIpc(cmd, args);
       if (!res.ok) throw res.error;
-      return res.value;
+      if (!res.arrayBuffer) return res.value;
+      const view = res.value;
+      return view.buffer.slice(view.byteOffset, view.byteOffset + view.byteLength);
     } finally {
       window.__lightmdPendingIpc -= 1;
     }
@@ -180,7 +182,10 @@ export async function launchApp(options = {}) {
     context = await browser.newContext({ viewport: options.viewport || { width: 1200, height: 800 } });
     await context.exposeBinding("__lightmdIpc", async (_source, cmd, args) => {
       try {
-        return { ok: true, value: await backend.invoke(cmd, args) };
+        const value = await backend.invoke(cmd, args);
+        // Playwright can't pass an ArrayBuffer (raw image bytes); a Uint8Array crosses fine.
+        if (value instanceof ArrayBuffer) return { ok: true, value: new Uint8Array(value), arrayBuffer: true };
+        return { ok: true, value };
       } catch (error) {
         return { ok: false, error: typeof error === "string" ? error : String(error?.message ?? error) };
       }

@@ -23,6 +23,7 @@ export const KNOWN_COMMANDS = [
   "list_workspace",
   "read_workspace_file",
   "write_workspace_file",
+  "stat_workspace_file",
   "read_workspace_image",
   "create_workspace_folder",
   "workspace_file_exists",
@@ -39,12 +40,14 @@ const ENOTDIR = "Not a directory (os error 20)";
 const EISDIR = "Is a directory (os error 21)";
 const EEXIST = "File exists (os error 17)";
 const EUTF8 = "stream did not contain valid UTF-8";
+const ENOTFILE = "path is not a file";
 
 // Argument types per command, as Tauri deserializes them ("?" = Option<_>).
 const COMMAND_ARGS = {
   list_workspace: { path: "string", sort: "string?" },
   read_workspace_file: { path: "string", relative: "string" },
   write_workspace_file: { path: "string", relative: "string", contents: "string" },
+  stat_workspace_file: { path: "string", relative: "string" },
   read_workspace_image: { path: "string", relative: "string" },
   create_workspace_folder: { path: "string", relative: "string" },
   workspace_file_exists: { path: "string", relative: "string" },
@@ -137,8 +140,10 @@ function checkArgs(cmd, args) {
 }
 
 // What crosses Tauri's IPC is JSON: undefined keys vanish, bytes become arrays.
+// A raw tauri::ipc::Response (read_workspace_image) arrives as an ArrayBuffer.
 function toIpc(value) {
   if (value === undefined) return null;
+  if (value instanceof ArrayBuffer) return value.slice(0);
   return JSON.parse(
     JSON.stringify(value, (_key, v) => (ArrayBuffer.isView(v) ? Array.from(v) : v)),
   );
@@ -389,12 +394,21 @@ export function createInvoke({
       mkdirp(abs);
       return null;
     },
+    stat_workspace_file({ path, relative }) {
+      const found = lookup(confine(path, relative).abs);
+      if (found.error) throw found.error;
+      if (found.entry.type !== "file") throw ENOTFILE;
+      const data = found.entry.data;
+      const size = typeof data === "string" ? new TextEncoder().encode(data).length : data.bytes.length;
+      return { modified_ms: found.entry.mtime, size };
+    },
     read_workspace_image({ path, relative }) {
       const found = lookup(confine(path, relative).abs);
       if (found.error) throw found.error;
       if (found.entry.type === "dir") throw EISDIR;
       const data = found.entry.data;
-      return typeof data === "string" ? Array.from(new TextEncoder().encode(data)) : data.bytes;
+      const bytes = typeof data === "string" ? new TextEncoder().encode(data) : Uint8Array.from(data.bytes);
+      return bytes.buffer;
     },
     workspace_file_exists({ path, relative }) {
       const found = lookup(confine(path, relative).abs);
