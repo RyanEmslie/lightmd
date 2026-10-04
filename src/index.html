@@ -1350,8 +1350,9 @@
         let currentRelative = null;
         let dirty = false;
         const tabStrip = document.getElementById("editor-tabs");
-        // Tabs: { id, root, relative, contents, dirty }. A file tab keeps the
-        // folder it was opened from (root); the untitled draft has root and
+        // Tabs: { id, root, relative, contents, dirty, modifiedMs }. A file tab
+        // keeps the folder it was opened from (root) and the file's modified
+        // time when it last read or wrote it; the untitled draft has root and
         // relative null.
         let openTabs = [];
         // The tab shown in the editor, or null when none is.
@@ -1592,6 +1593,24 @@
           return false;
         }
 
+        // Three buttons. Resolves "yes", "no" or "cancel" (also when dismissed).
+        async function askChoice(message, labels) {
+          const tauri = window.__TAURI__;
+          if (tauri && tauri.dialog && typeof tauri.dialog.message === "function") {
+            const said = await tauri.dialog.message(message, {
+              title: "LightMD",
+              kind: "warning",
+              buttons: { yes: labels.yes, no: labels.no, cancel: labels.cancel },
+            });
+            if (said === labels.yes || said === "Yes") return "yes";
+            if (said === labels.no || said === "No") return "no";
+            return "cancel";
+          }
+          return (await askConfirm(`${message}\n\nOK: ${labels.yes}. Cancel: ${labels.cancel}.`))
+            ? "yes"
+            : "cancel";
+        }
+
         async function pickSavePath() {
           const tauri = window.__TAURI__;
           if (!tauri) return null;
@@ -1680,6 +1699,9 @@
             relative: untitled ? null : relative,
             contents: contents == null ? "" : String(contents),
             dirty: false,
+            modifiedMs: null,
+            conflict: null, // the open "changed on disk" question, if any
+            putOff: false, // the user chose to keep editing over a conflict
           };
         }
 
@@ -1829,29 +1851,95 @@
           renderTabs();
         }
 
-        // Writes `contents` to the tab's file. The tab is clean afterwards only
-        // if its text is still what was written.
-        async function writeTab(tab, contents) {
-          await window.__TAURI__.core.invoke("write_workspace_file", {
-            path: tab.root,
-            relative: tab.relative,
-            contents,
-          });
+        // Writes `contents` to the tab's file, unless the file changed on disk
+        // since the tab last saw it (rejects "conflict: …"); `force` writes
+        // anyway. The tab is clean afterwards only if its text is still what
+        // was written.
+        async function writeTab(tab, contents, force = false) {
+          const args = { path: tab.root, relative: tab.relative, contents };
+          if (!force && tab.modifiedMs != null) args.expectedModifiedMs = tab.modifiedMs;
+          const modified = await window.__TAURI__.core.invoke("write_workspace_file", args);
+          tab.modifiedMs = typeof modified === "number" ? modified : null;
+          tab.putOff = false;
           if (tabText(tab) === contents) setTabDirty(tab, false);
         }
 
+        function isConflict(err) {
+          return /^conflict:/.test(String(err && err.message ? err.message : err));
+        }
+
         // Saves a file tab's text. Resolves false, with the error shown, when
-        // it can't.
+        // it can't, or when the user keeps editing over a conflict.
         async function saveTab(tab) {
           if (!tab || tab.relative == null || tab.root == null) return false;
+          if (tab.conflict) return tab.conflict;
           try {
             await writeTab(tab, tabText(tab));
-          } catch {
+          } catch (err) {
+            if (isConflict(err)) return resolveConflict(tab);
             showSaveError();
             return false;
           }
           clearSaveError();
           return true;
+        }
+
+        // The file changed on disk since the tab read or saved it: overwrite it,
+        // reload it (dropping the edit), or keep editing and decide on a later
+        // Save.
+        function resolveConflict(tab) {
+          tab.conflict = (async () => {
+            const choice = await askChoice(
+              `${fileNameOf(tab.relative)} changed on disk since you opened it. Overwrite it with your version, or reload the version on disk?`,
+              { yes: "Overwrite", no: "Reload", cancel: "Keep Editing" },
+            );
+            try {
+              if (choice === "yes") await writeTab(tab, tabText(tab), true);
+              else if (choice === "no") await reloadTab(tab, true);
+            } catch {
+              showSaveError();
+              return false;
+            }
+            if (choice === "cancel") {
+              tab.putOff = true;
+              return false;
+            }
+            clearSaveError();
+            return true;
+          })().finally(() => {
+            tab.conflict = null;
+          });
+          return tab.conflict;
+        }
+
+        // Reads the tab's file again. Unless `discard`, an edit made meanwhile wins.
+        async function reloadTab(tab, discard = false) {
+          const doc = await readDocument(tab.root, tab.relative);
+          if (!openTabs.includes(tab) || (!discard && tab.dirty)) return;
+          tab.contents = doc.contents;
+          tab.modifiedMs = doc.modifiedMs;
+          tab.putOff = false;
+          if (tab === activeTab) {
+            loadIntoEditor(tab.contents, tab);
+            setDirty(false);
+            emit("lightmd:document-loaded", { root: tabRoot(tab), relative: tab.relative });
+          } else {
+            setTabDirty(tab, false);
+          }
+        }
+
+        // A clean tab shown again follows its file if another program changed it.
+        async function refreshIfChanged(tab) {
+          if (!tab || tab.dirty || tab.relative == null || tab.modifiedMs == null) return;
+          try {
+            const stat = await window.__TAURI__.core.invoke("stat_workspace_file", {
+              path: tab.root,
+              relative: tab.relative,
+            });
+            if (stat && stat.modified_ms !== tab.modifiedMs) await reloadTab(tab);
+          } catch {
+            // gone or unreadable: keep what is shown
+          }
         }
 
         // Before another tab (or nothing) takes the editor: keep its text, and
@@ -1862,7 +1950,7 @@
           if (typeof window.lightmdCancelAutosave === "function") {
             window.lightmdCancelAutosave();
           }
-          if (!tab || !tab.dirty || !autosaveOn()) return null;
+          if (!tab || !tab.dirty || !autosaveOn() || tab.putOff) return null;
           return saveTab(tab).catch(() => false);
         }
 
@@ -1961,12 +2049,12 @@
             showActivePath();
             markActiveFile();
             renderTabs();
-            return;
+            return refreshIfChanged(tab);
           }
           const flushed = leaveActive();
           showTab(tab);
           persistActiveTab();
-          return flushed;
+          return Promise.all([flushed, refreshIfChanged(tab)]);
         }
 
         async function closeTab(tab) {
@@ -2007,14 +2095,25 @@
           return true;
         }
 
-        // One read per file at a time, however often it is clicked.
+        // { contents, modifiedMs }; one read per file at a time, however often
+        // it is clicked. The time is taken first, so a change racing the read
+        // shows up as a conflict rather than being missed.
         function readDocument(root, relative) {
           const key = `${root}\n${relative}`;
           let pending = pendingReads.get(key);
           if (!pending) {
-            pending = window.__TAURI__.core
-              .invoke("read_workspace_file", { path: root, relative })
-              .finally(() => pendingReads.delete(key));
+            const invoke = window.__TAURI__.core.invoke;
+            pending = (async () => {
+              let modifiedMs = null;
+              try {
+                const stat = await invoke("stat_workspace_file", { path: root, relative });
+                if (stat && typeof stat.modified_ms === "number") modifiedMs = stat.modified_ms;
+              } catch {
+                // the read below reports a missing file
+              }
+              const contents = await invoke("read_workspace_file", { path: root, relative });
+              return { contents, modifiedMs };
+            })().finally(() => pendingReads.delete(key));
             pendingReads.set(key, pending);
           }
           return pending;
@@ -2026,13 +2125,14 @@
           const request = ++navigation;
           const open = findTab(root, relative);
           if (open) {
-            activateTab(open);
+            await activateTab(open);
             return;
           }
-          const body = await readDocument(root, relative);
+          const doc = await readDocument(root, relative);
           let tab = findTab(root, relative);
           if (!tab) {
-            tab = makeTab(root, relative, body);
+            tab = makeTab(root, relative, doc.contents);
+            tab.modifiedMs = doc.modifiedMs;
             openTabs.push(tab);
           }
           // A later click won while this file was loading: open it behind.
@@ -2198,7 +2298,7 @@
             if (!ok) return false;
           }
 
-          await tauri.core.invoke("write_workspace_file", {
+          const modified = await tauri.core.invoke("write_workspace_file", {
             path: root,
             relative,
             contents,
@@ -2218,6 +2318,8 @@
           const shown = tab === activeTab || !activeTab || existing === activeTab;
           tab.root = root;
           tab.relative = relative;
+          tab.modifiedMs = typeof modified === "number" ? modified : null;
+          tab.putOff = false;
           if (!shown) tab.contents = contents;
 
           // The explorer follows the saved file; other tabs keep their folders.
@@ -2284,7 +2386,9 @@
         window.lightmdGetOpenBuffers = openBuffers;
         // autosave.js calls this when its delay is up.
         window.lightmdAutosaveWrite = () =>
-          activeTab && activeTab.dirty ? saveTab(activeTab) : Promise.resolve(false);
+          activeTab && activeTab.dirty && !activeTab.putOff
+            ? saveTab(activeTab)
+            : Promise.resolve(false);
         window.newNote = newNote;
         window.saveAs = saveAs;
 
