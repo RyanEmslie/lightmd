@@ -44,10 +44,24 @@ function parentDir(fileRelative) {
   return i === -1 ? "" : n.slice(0, i);
 }
 
+function decodeSegment(part) {
+  try {
+    return decodeURIComponent(part);
+  } catch {
+    return part;
+  }
+}
+
+// Maps a (markdown-it percent-encoded) URL path to a workspace-relative file:
+// ?query and #hash are dropped, a leading / means the workspace root, and
+// null means it would leave the workspace.
 function confinedWorkspaceRelative(src, fileRelative = "") {
-  const start = parentDir(fileRelative);
+  const path = String(src).replace(/[?#].*$/s, "").replace(/\\/g, "/");
+  const start = path.startsWith("/") ? "" : parentDir(fileRelative);
   const parts = start ? start.split("/").filter(Boolean) : [];
-  for (const part of String(src).replace(/\\/g, "/").split("/")) {
+  for (const raw of path.split("/")) {
+    const part = decodeSegment(raw);
+    if (/[/\\\0]/.test(part)) return null;
     if (!part || part === ".") continue;
     if (part === "..") {
       if (parts.length === 0) return null;

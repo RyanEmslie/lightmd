@@ -41,7 +41,7 @@ const cases = [
   ["a leading / (workspace root)", "![](/assets/a.png)", "assets/a.png"],
   ["a #fragment", "![](a.png#icon)", "docs/a.png"],
   ["a ?query", "![](diagram.png?raw=true)", "docs/diagram.png"],
-  ["an encoded # in the name", "![](<issue #4.png>)", "docs/issue #4.png"],
+  ["an encoded # in the name", "![](issue%20%234.png)", "docs/issue #4.png"],
 ];
 
 for (const [label, markdown, relative] of cases) {
