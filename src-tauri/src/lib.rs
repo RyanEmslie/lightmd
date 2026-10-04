@@ -1048,4 +1048,44 @@ mod tests {
             "recreated\n"
         );
     }
+
+    #[test]
+    fn read_image_reads_only_image_extensions() {
+        let (root, _cleanup) = temp_workspace("image-ext");
+        for name in [
+            "a.png", "b.jpg", "c.jpeg", "d.gif", "e.webp", "f.svg", "g.bmp", "h.ico", "i.avif",
+            "J.PNG",
+        ] {
+            std::fs::write(root.join(name), name.as_bytes()).expect("seed image");
+            assert_eq!(
+                read_image(&root, name).unwrap_or_else(|e| panic!("read_image({name}): {e}")),
+                name.as_bytes(),
+                "read_image must read {name}"
+            );
+        }
+        for name in ["note.md", "page.html", "secret.txt", "no-extension"] {
+            std::fs::write(root.join(name), "not an image").expect("seed file");
+            assert!(
+                read_image(&root, name).is_err(),
+                "read_image({name}) must be Err for a non-image file"
+            );
+        }
+    }
+
+    #[test]
+    fn read_image_rejects_files_over_20_mb() {
+        const LIMIT: u64 = 20 * 1024 * 1024;
+        let (root, _cleanup) = temp_workspace("image-size");
+        let at_limit = std::fs::File::create(root.join("limit.png")).expect("create limit.png");
+        at_limit.set_len(LIMIT).expect("size limit.png");
+        let too_big = std::fs::File::create(root.join("big.png")).expect("create big.png");
+        too_big.set_len(LIMIT + 1).expect("size big.png");
+
+        let bytes = read_image(&root, "limit.png").expect("an image of exactly 20 MB is allowed");
+        assert_eq!(bytes.len() as u64, LIMIT);
+        assert!(
+            read_image(&root, "big.png").is_err(),
+            "read_image must be Err for an image over 20 MB"
+        );
+    }
 }
