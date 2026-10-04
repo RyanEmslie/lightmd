@@ -338,6 +338,8 @@ export function bindSettings() {
   });
   on(d.getElementById("settings-live-preview"), "change", (event) => {
     preview.live = !!event.target.checked;
+    // Edits made while it was off are not in the preview yet.
+    if (preview.live) editorApi()?.refreshPreview?.();
   });
   on(d.getElementById("settings-frontmatter"), "change", (event) => {
     editorApi()?.setShowFrontmatter?.(!!event.target.checked);
