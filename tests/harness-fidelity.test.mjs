@@ -103,6 +103,69 @@ describe("fake Tauri backend mirrors the real one", () => {
     assert.match(String(typed), /invalid type: null, expected a string/);
   });
 
+  test("writes return modified_ms and stat_workspace_file reports it, like Rust", async () => {
+    const backend = createInvoke({ root: "/ws", files: { "a.md": "héllo" } });
+    const before = await backend.invoke("stat_workspace_file", { path: "/ws", relative: "a.md" });
+    assert.deepEqual(Object.keys(before).sort(), ["modified_ms", "size"]);
+    assert.equal(before.size, 6, "size is in bytes");
+    const written = await backend.invoke("write_workspace_file", {
+      path: "/ws",
+      relative: "a.md",
+      contents: "new",
+    });
+    assert.equal(typeof written, "number");
+    assert.notEqual(written, before.modified_ms, "a write changes the mtime");
+    const after = await backend.invoke("stat_workspace_file", { path: "/ws", relative: "a.md" });
+    assert.equal(after.modified_ms, written);
+    assert.equal(
+      await rejection(backend.invoke("stat_workspace_file", { path: "/ws", relative: "nope.md" })),
+      "No such file or directory (os error 2)",
+    );
+  });
+
+  test("expectedModifiedMs rejects with conflict: when the file changed on disk", async () => {
+    const backend = createInvoke({ root: "/ws", files: { "a.md": "v1" } });
+    const { modified_ms: seen } = await backend.invoke("stat_workspace_file", {
+      path: "/ws",
+      relative: "a.md",
+    });
+    backend.files.set("a.md", "v2 from another program");
+    const err = await rejection(
+      backend.invoke("write_workspace_file", {
+        path: "/ws",
+        relative: "a.md",
+        contents: "mine",
+        expectedModifiedMs: seen,
+      }),
+    );
+    assert.match(String(err), /^conflict:/);
+    assert.equal(backend.files.get("a.md"), "v2 from another program", "nothing is written");
+    const now = backend.mtime("/ws", "a.md");
+    await backend.invoke("write_workspace_file", {
+      path: "/ws",
+      relative: "a.md",
+      contents: "mine",
+      expectedModifiedMs: now,
+    });
+    assert.equal(backend.files.get("a.md"), "mine", "a matching mtime writes");
+    await backend.invoke("write_workspace_file", {
+      path: "/ws",
+      relative: "new.md",
+      contents: "fresh",
+      expectedModifiedMs: 1,
+    });
+    assert.equal(backend.files.get("new.md"), "fresh", "a missing file is not a conflict");
+    const typed = await rejection(
+      backend.invoke("write_workspace_file", {
+        path: "/ws",
+        relative: "a.md",
+        contents: "x",
+        expectedModifiedMs: "12",
+      }),
+    );
+    assert.match(String(typed), /expected u64/);
+  });
+
   test("dialog plugin commands answer from the configured dialog state", async () => {
     const backend = createInvoke({ root: "/ws", dialog: { open: "/ws", confirm: true } });
     assert.equal(
@@ -135,6 +198,32 @@ describe("window.__TAURI__ from buildTauriGlobals mirrors withGlobalTauri", () =
         ["plugin:dialog|message", "YesNo"],
         ["plugin:dialog|message", "OkCancel"],
       ],
+    );
+  });
+
+  test("onCloseRequested destroys the window unless the listener prevents it", async () => {
+    const backend = createInvoke({ capabilities: ["core:default", "core:window:allow-destroy"] });
+    const { __TAURI__, __TAURI_INTERNALS__ } = buildTauriGlobals(backend.invoke);
+    let prevent = true;
+    await __TAURI__.window.getCurrentWindow().onCloseRequested((event) => {
+      if (prevent) event.preventDefault();
+    });
+    const [listener] = backend.listeners;
+    assert.equal(listener.event, "tauri://close-requested");
+    const close = () =>
+      __TAURI_INTERNALS__.runCallback(listener.handler, { event: listener.event, id: listener.id });
+    await close();
+    assert.deepEqual(backend.windowCalls, [], "a prevented close keeps the window");
+    prevent = false;
+    await close();
+    assert.deepEqual(backend.windowCalls.map((c) => c.cmd), ["destroy"]);
+
+    const denied = createInvoke({ capabilities: ["core:default"] });
+    const api = buildTauriGlobals(denied.invoke).__TAURI__.window;
+    assert.equal(
+      await rejection(api.getCurrentWindow().destroy()),
+      "Command plugin:window|destroy not allowed by ACL",
+      "core:default does not grant destroy",
     );
   });
 
@@ -228,6 +317,16 @@ describe("bootApp runs the inline app glue against the real markup", () => {
     try {
       assert.equal(rt.el("save"), null);
       assert.equal(rt.el("open-folder").tagName, "BUTTON");
+    } finally {
+      rt.cleanup();
+    }
+  });
+
+  test("requestClose() closes a window nothing listens on, and runs listeners otherwise", async () => {
+    const rt = bootApp();
+    try {
+      rt.backend.listeners.length = 0;
+      assert.equal(await rt.requestClose(), true);
     } finally {
       rt.cleanup();
     }

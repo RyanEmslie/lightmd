@@ -7,14 +7,17 @@
 //     await rt.win.lightmdOpenFile("a.md");
 //     rt.el("editor-tabs").querySelector('[role="tab"]').click();
 //     rt.files.get("a.md"); rt.writes; rt.invokes; rt.confirms;
+//     await rt.requestClose();  // the window's close button; true if it closed
 //   } finally {
 //     rt.cleanup();
 //   }
 //
 // editor.bundle.js does not run here: window.lightmdEditor is a stub that
 // writes #editor-buffer, and autosave is a counting stub unless you pass
-// realAutosave: true. Drive CodeMirror, layout and the bundle in the e2e
-// suite (tests/e2e) instead.
+// realAutosave: true. The autosave settings (window.lightmdAutosave) and the
+// "save failed" UI (lightmdShowSaveError/lightmdClearSaveError) are always the
+// real ones from src/autosave.js, wired the way editor.js wires them. Drive
+// CodeMirror, layout and the bundle in the e2e suite (tests/e2e) instead.
 import assert from "node:assert/strict";
 import { pathToFileURL } from "node:url";
 import { join } from "node:path";
@@ -115,6 +118,13 @@ export function bootApp(options = {}) {
     state.scheduleCalls += 1;
     if (realAutosave) autosaveModule.scheduleAutoSave();
   };
+  win.lightmdAutosave = autosaveModule.autosave;
+  if (typeof autosaveModule.showSaveError === "function") {
+    win.lightmdShowSaveError = autosaveModule.showSaveError;
+  }
+  if (typeof autosaveModule.clearSaveError === "function") {
+    win.lightmdClearSaveError = autosaveModule.clearSaveError;
+  }
   win.lightmdEditor = {
     editable: false,
     setDoc(text) {
@@ -153,6 +163,24 @@ export function bootApp(options = {}) {
     for (const key of Object.keys(prev)) restore(key);
   }
 
+  // The window's close button. Runs the app's close-requested listeners like
+  // Tauri does and resolves to true when the window closed: it was destroyed,
+  // or nothing was listening so Tauri closed it directly.
+  async function requestClose() {
+    const listening = backend.listeners.filter((l) => l.event === "tauri://close-requested");
+    if (!listening.length) return true;
+    const destroys = () => backend.windowCalls.filter((c) => c.cmd === "destroy").length;
+    const before = destroys();
+    for (const l of listening) {
+      await win.__TAURI_INTERNALS__.runCallback(l.handler, {
+        event: "tauri://close-requested",
+        id: l.id,
+        payload: null,
+      });
+    }
+    return destroys() > before;
+  }
+
   // Answer the in-app name dialog (New Folder) that askName() opened.
   async function answerNameDialog(value) {
     assert.equal(el("name-dialog").hidden, false, "precondition: the name dialog must be open");
@@ -187,6 +215,7 @@ export function bootApp(options = {}) {
     cleanup,
     clickAndAwait,
     answerNameDialog,
+    requestClose,
     normalizeRel,
   };
 }
