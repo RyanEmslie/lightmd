@@ -346,3 +346,42 @@ test("the pane shortcuts cannot hide every pane, so a relaunch is never blank", 
     await app.close();
   }
 });
+
+test("Settings changes survive a relaunch and apply before the editor mounts", async () => {
+  const app = await launchApp();
+  try {
+    await openNote(app, { "note.md": "# Note\n" });
+    await app.page.click("#settings-open");
+    await app.page.check("#show-line-numbers");
+    await app.page.uncheck("#settings-word-wrap");
+    await app.page.fill("#editor-font-size", "18");
+    await app.page.locator("#editor-font-size").dispatchEvent("change");
+    await app.page.uncheck("#show-extensions");
+    await app.page.click("#settings-close");
+
+    await app.reload();
+    const state = await app.page.evaluate(() => ({
+      gutter: !!document.querySelector("#editor-view .cm-lineNumbers"),
+      wrapping: document.querySelector("#editor-view .cm-content").classList.contains("cm-lineWrapping"),
+      fontSize: getComputedStyle(document.querySelector("#editor-view .cm-content")).fontSize,
+      lineNumbersBox: document.getElementById("show-line-numbers").checked,
+      fontBox: document.getElementById("editor-font-size").value,
+    }));
+    assert.deepEqual(state, {
+      gutter: true,
+      wrapping: false,
+      fontSize: "18px",
+      lineNumbersBox: true,
+      fontBox: "18",
+    });
+    await app.openFolder();
+    assert.equal(
+      (await app.page.locator('#file-list li[data-path="note.md"]').innerText()).trim(),
+      "note",
+      "file extensions stay hidden after a relaunch",
+    );
+    assert.deepEqual(app.errors, []);
+  } finally {
+    await app.close();
+  }
+});
