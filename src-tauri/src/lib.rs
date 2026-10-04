@@ -693,4 +693,141 @@ mod tests {
             "a refused save must not leave temp files behind"
         );
     }
+
+    /// A workspace folder plus a sibling folder outside it, removed together on drop.
+    fn workspace_with_outside(label: &str) -> (PathBuf, PathBuf, RemoveDirOnDrop) {
+        let (parent, cleanup) = temp_workspace(label);
+        let root = parent.join("workspace");
+        let outside = parent.join("outside");
+        std::fs::create_dir_all(&root).expect("workspace folder");
+        std::fs::create_dir_all(&outside).expect("outside folder");
+        (root, outside, cleanup)
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn write_file_rejects_dangling_symlink_to_outside() {
+        use std::os::unix::fs::symlink;
+        let (root, outside, _cleanup) = workspace_with_outside("dangling");
+        symlink(outside.join("x.md"), root.join("link.md")).expect("dangling file link");
+        let result = write_file(&root, "link.md", "escaped\n");
+        assert!(
+            result.is_err(),
+            "write_file through a dangling symlink must be Err, got Ok({:?})",
+            result.ok()
+        );
+        assert!(
+            !outside.join("x.md").exists(),
+            "write_file must not create a symlink target outside the workspace"
+        );
+
+        symlink(outside.join("gone"), root.join("gone")).expect("dangling folder link");
+        assert!(
+            write_file(&root, "gone/x.md", "escaped\n").is_err(),
+            "write_file under a dangling folder symlink must be Err"
+        );
+        assert!(
+            super::create_folder(&root, "gone/sub").is_err(),
+            "create_folder under a dangling folder symlink must be Err"
+        );
+        assert!(
+            !outside.join("gone").exists(),
+            "nothing may be created outside the workspace"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn symlink_to_outside_file_is_rejected() {
+        use std::os::unix::fs::symlink;
+        let (root, outside, _cleanup) = workspace_with_outside("link-file");
+        std::fs::write(outside.join("secret.md"), "secret\n").expect("seed outside file");
+        symlink(outside.join("secret.md"), root.join("secret.md")).expect("file link");
+        assert!(
+            read_file(&root, "secret.md").is_err(),
+            "read_file through a symlink to an outside file must be Err"
+        );
+        assert!(
+            write_file(&root, "secret.md", "overwritten\n").is_err(),
+            "write_file through a symlink to an outside file must be Err"
+        );
+        assert_eq!(
+            std::fs::read_to_string(outside.join("secret.md")).expect("read outside file"),
+            "secret\n",
+            "the outside file must be untouched"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn symlinked_folder_pointing_outside_is_rejected() {
+        use std::os::unix::fs::symlink;
+        let (root, outside, _cleanup) = workspace_with_outside("link-dir");
+        std::fs::write(outside.join("a.md"), "outside a\n").expect("seed outside file");
+        symlink(&outside, root.join("linked")).expect("folder link");
+        assert!(
+            read_file(&root, "linked/a.md").is_err(),
+            "read_file through a folder symlink pointing outside must be Err"
+        );
+        assert!(
+            write_file(&root, "linked/new.md", "escaped\n").is_err(),
+            "write_file through a folder symlink pointing outside must be Err"
+        );
+        assert!(
+            super::create_folder(&root, "linked/sub").is_err(),
+            "create_folder through a folder symlink pointing outside must be Err"
+        );
+        assert_eq!(
+            dir_names(&outside),
+            ["a.md"],
+            "nothing may be created outside the workspace"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn symlinks_inside_the_workspace_still_work() {
+        use std::os::unix::fs::symlink;
+        let (root, _cleanup) = temp_workspace("link-inside");
+        std::fs::write(root.join("real.md"), "real\n").expect("seed real.md");
+        symlink(root.join("real.md"), root.join("alias.md")).expect("inside link");
+        assert_eq!(
+            read_file(&root, "alias.md").expect("read through an inside symlink"),
+            "real\n"
+        );
+        write_file(&root, "alias.md", "updated\n").expect("save through an inside symlink");
+        assert_eq!(
+            std::fs::read_to_string(root.join("real.md")).expect("read real.md"),
+            "updated\n",
+            "saving through a symlink must update its target"
+        );
+        assert!(
+            std::fs::symlink_metadata(root.join("alias.md"))
+                .expect("stat alias.md")
+                .file_type()
+                .is_symlink(),
+            "saving through a symlink must keep the link"
+        );
+    }
+
+    #[test]
+    fn confined_path_rejects_absolute_parent_escape_and_empty() {
+        let (root, outside, _cleanup) = workspace_with_outside("confine-lexical");
+        let absolute = outside.join("abs.md");
+        assert!(
+            write_file(&root, &absolute, "escaped\n").is_err(),
+            "an absolute relative path must be Err"
+        );
+        assert!(!absolute.exists(), "an absolute path must not be written");
+        for relative in ["a/../../x.md", "", ".", "a/.."] {
+            assert!(
+                super::confined_path(&root, relative).is_err(),
+                "confined_path(root, {relative:?}) must be Err"
+            );
+        }
+        assert!(
+            super::create_folder(&root, "").is_err(),
+            "create_folder(root, \"\") must be Err"
+        );
+    }
 }
