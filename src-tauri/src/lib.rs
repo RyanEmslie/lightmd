@@ -522,4 +522,112 @@ mod tests {
             "read_image must not mutate a path outside the workspace root"
         );
     }
+
+    fn dir_names(dir: &std::path::Path) -> Vec<String> {
+        let mut names: Vec<String> = std::fs::read_dir(dir)
+            .expect("folder should be readable")
+            .map(|entry| {
+                entry
+                    .expect("folder entry")
+                    .file_name()
+                    .to_string_lossy()
+                    .into_owned()
+            })
+            .collect();
+        names.sort();
+        names
+    }
+
+    #[test]
+    fn write_file_leaves_no_temp_files_behind() {
+        let (root, _cleanup) = temp_workspace("atomic-clean");
+        std::fs::write(root.join("note.md"), "original\n").expect("seed note.md");
+        write_file(&root, "note.md", "replaced\n").expect("save over an existing file");
+        write_file(&root, "fresh.md", "created\n").expect("save a new file");
+        assert_eq!(
+            read_file(&root, "note.md").expect("read note.md"),
+            "replaced\n",
+            "write_file must persist the new contents"
+        );
+        assert_eq!(
+            dir_names(&root),
+            ["fresh.md", "note.md"],
+            "a save must not leave temp files in the folder"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn write_file_replaces_the_file_instead_of_truncating_it() {
+        use std::io::Read;
+        let (root, _cleanup) = temp_workspace("atomic-replace");
+        let path = root.join("note.md");
+        std::fs::write(&path, "complete original\n").expect("seed note.md");
+        // An in-place write truncates the file first, which is what a crash or full
+        // disk leaves behind. A reader holding the old file must still see all of it.
+        let mut before = std::fs::File::open(&path).expect("open note.md before saving");
+        write_file(&root, "note.md", "new\n").expect("save note.md");
+        let mut old = String::new();
+        before
+            .read_to_string(&mut old)
+            .expect("read through the handle opened before the save");
+        assert_eq!(
+            old, "complete original\n",
+            "write_file must replace the file via rename, never truncate it in place"
+        );
+        assert_eq!(
+            std::fs::read_to_string(&path).expect("read note.md"),
+            "new\n",
+            "the saved file must hold the new contents"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn write_file_keeps_existing_permissions() {
+        use std::os::unix::fs::PermissionsExt;
+        let (root, _cleanup) = temp_workspace("atomic-perms");
+        let path = root.join("note.md");
+        std::fs::write(&path, "original\n").expect("seed note.md");
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o640))
+            .expect("chmod note.md");
+        write_file(&root, "note.md", "replaced\n").expect("save note.md");
+        let mode = std::fs::metadata(&path)
+            .expect("stat note.md")
+            .permissions()
+            .mode()
+            & 0o777;
+        assert_eq!(mode, 0o640, "write_file must keep the file's permissions");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn write_file_refuses_read_only_files() {
+        use std::os::unix::fs::PermissionsExt;
+        let (root, _cleanup) = temp_workspace("atomic-readonly");
+        let path = root.join("locked.md");
+        std::fs::write(&path, "keep me\n").expect("seed locked.md");
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o444))
+            .expect("chmod locked.md");
+        if std::fs::OpenOptions::new().write(true).open(&path).is_ok() {
+            // Running as root: file modes are not enforced, so there is nothing to check.
+            return;
+        }
+        let result = write_file(&root, "locked.md", "overwritten\n");
+        assert!(
+            result.is_err(),
+            "write_file must not replace a read-only file, got Ok({:?})",
+            result.ok()
+        );
+        assert_eq!(
+            std::fs::read_to_string(&path).expect("read locked.md"),
+            "keep me\n",
+            "a refused save must leave the file untouched"
+        );
+        assert_eq!(
+            dir_names(&root),
+            ["locked.md"],
+            "a refused save must not leave temp files behind"
+        );
+    }
 }
