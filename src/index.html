@@ -84,6 +84,10 @@
         transition: grid-template-columns 120ms;
       }
 
+      #shell.is-resizing {
+        transition: none;
+      }
+
       .pane {
         position: relative;
         min-width: 160px;
@@ -180,6 +184,33 @@
         border-bottom: 1px solid var(--border);
       }
 
+      #explorer-reopen {
+        position: fixed;
+        top: 0;
+        left: 0;
+        bottom: 24px;
+        z-index: 5;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 8px;
+        width: 48px;
+        padding: 4px 0;
+        box-sizing: border-box;
+        background: var(--bg);
+        border-right: 1px solid var(--border);
+      }
+
+      #explorer-reopen[hidden],
+      #settings:not([hidden]) ~ #explorer-reopen {
+        display: none;
+      }
+
+      #explorer-reopen:not([hidden]) ~ #shell {
+        padding-left: 48px;
+      }
+
+      #explorer-reopen button,
       #sidebar-toggle,
       #open-folder,
       #new-note,
@@ -198,6 +229,7 @@
         border: 1px solid var(--border);
       }
 
+      #explorer-reopen svg,
       #sidebar-toggle svg,
       #open-folder svg,
       #new-note svg,
@@ -215,6 +247,7 @@
         border-color: var(--fg);
       }
 
+      #explorer-reopen button:hover,
       #sidebar-toggle:hover,
       #open-folder:hover,
       #new-note:hover,
@@ -1173,6 +1206,34 @@
         </main>
       </div>
     </section>
+    <nav id="explorer-reopen" aria-label="Sidebar" hidden>
+      <button
+        type="button"
+        id="explorer-reopen-toggle"
+        aria-label="Show sidebar"
+        title="Show sidebar"
+      >
+        <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" focusable="false">
+          <rect x="1.5" y="2.5" width="13" height="11" rx="2" fill="none" stroke="currentColor" stroke-width="1.25" />
+          <rect x="1.5" y="2.5" width="4.5" height="11" rx="2" fill="currentColor" />
+        </svg>
+      </button>
+      <button
+        type="button"
+        id="explorer-reopen-settings"
+        aria-label="Settings"
+        title="Settings"
+      >
+        <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" focusable="false">
+          <path
+            fill="currentColor"
+            fill-rule="evenodd"
+            d="M8.6 1.5c.33 0 .62.2.74.51l.6 1.6c.42.1.82.26 1.2.45l1.55-.45a.75.75 0 0 1 .85.4l.75 1.3a.75.75 0 0 1-.13.88l-1.15 1.07c.04.3.04.61 0 .91l1.15 1.07a.75.75 0 0 1 .13.88l-.75 1.3a.75.75 0 0 1-.85.4l-1.55-.45c-.38.19-.78.35-1.2.45l-.6 1.6a.75.75 0 0 1-.74.51H7.4a.75.75 0 0 1-.74-.51l-.6-1.6a6 6 0 0 1-1.2-.45l-1.55.45a.75.75 0 0 1-.85-.4l-.75-1.3a.75.75 0 0 1 .13-.88l1.15-1.07a6 6 0 0 1 0-.91L1.64 6.22a.75.75 0 0 1-.13-.88l.75-1.3a.75.75 0 0 1 .85-.4l1.55.45c.38-.19.78-.35 1.2-.45l.6-1.6a.75.75 0 0 1 .74-.51h1.2ZM8 10.5a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5Z"
+            clip-rule="evenodd"
+          />
+        </svg>
+      </button>
+    </nav>
     <div id="shell">
       <aside id="explorer" class="pane" tabindex="0">
         <div id="layout-bar">

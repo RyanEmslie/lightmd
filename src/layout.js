@@ -97,40 +97,37 @@ function clampOpenPaneWidths() {
   }
 }
 
-function captureWidths() {
-  const d = doc();
-  if (!d || typeof d.getElementById !== "function") return;
+function isPinned(id) {
+  return id === "explorer" || !!layout.fixed[id];
+}
+
+// Pinned panes (the explorer and any pane a drag sized) keep their saved
+// widths while the window has room. When it doesn't, the part of each width
+// above MIN_PANE shrinks in proportion so every visible pane stays on-screen.
+// Saved widths are left alone, so a bigger window gets them back.
+function fittedWidths() {
   const vis = visiblePaneIds();
-  // A lone pane just fills leftover window space; persisting that width
-  // pushes later panes off-screen when they reopen.
-  if (vis.length < 2) return;
-  for (const id of vis) {
-    const el = d.getElementById(id);
-    const width = el?.getBoundingClientRect?.()?.width;
-    if (typeof width === "number" && Number.isFinite(width) && width > 0) {
-      layout.widths[id] = clampOpenWidth(width, layout.widths[id] || 240);
-    }
+  const pinned = vis.filter(isPinned);
+  const out = {};
+  for (const id of pinned) out[id] = clampOpenWidth(layout.widths[id]);
+  const room = windowSize().width - reopenControlWidth() - (vis.length - pinned.length) * MIN_PANE;
+  const total = pinned.reduce((sum, id) => sum + out[id], 0);
+  const spare = total - pinned.length * MIN_PANE;
+  if (total > room && spare > 0) {
+    const scale = Math.max(0, room - pinned.length * MIN_PANE) / spare;
+    for (const id of pinned) out[id] = Math.floor(MIN_PANE + (out[id] - MIN_PANE) * scale);
   }
-  clampOpenPaneWidths();
+  return out;
 }
 
-function minTrackFor(id) {
-  const vis = visiblePaneIds();
-  const raw =
-    id === "explorer" || layout.fixed[id]
-      ? clampOpenWidth(layout.widths[id])
-      : MIN_PANE;
-  const others = Math.max(0, vis.length - 1);
-  if (others === 0) return raw;
-  const max = Math.max(MIN_PANE, windowSize().width - others * MIN_PANE);
-  return Math.min(raw, max);
-}
-
-function columnFor(id) {
+function columnFor(id, fit) {
   if (layout.open[id] === false) return "0px";
-  if (id === "explorer" || layout.fixed[id]) {
-    return `minmax(${minTrackFor(id)}px, 1fr)`;
+  if (id === "explorer") {
+    // A fixed track: a 1fr share would grow the explorer with the window.
+    // Alone, it fills the window instead of leaving it blank.
+    return visiblePaneIds().length > 1 ? `${fit.explorer}px` : `minmax(${fit.explorer}px, 1fr)`;
   }
+  if (layout.fixed[id]) return `minmax(${fit[id]}px, 1fr)`;
   return `minmax(${MIN_PANE}px, 1fr)`;
 }
 
@@ -138,10 +135,27 @@ function visiblePaneIds() {
   return layout.order.filter((id) => isPaneId(id) && layout.open[id] !== false);
 }
 
+// With no open pane the window is blank and has no control to bring one back,
+// so fall back to the previous state (or every pane).
+function ensureOpenPane(fallback) {
+  if (PANE_IDS.some((id) => layout.open[id] !== false)) return;
+  Object.assign(layout.open, fallback);
+  if (PANE_IDS.some((id) => layout.open[id] !== false)) return;
+  for (const id of PANE_IDS) layout.open[id] = true;
+}
+
 function relaxContentWidths() {
   if (layout.open.editor !== false && layout.open.preview !== false) {
     layout.fixed.editor = false;
     layout.fixed.preview = false;
+  }
+}
+
+// A content pane coming back gets an even split; anything else (the explorer
+// toggling, Settings closing, a pane hiding) keeps the user's dragged split.
+function relaxIfContentReopened(before) {
+  if (["editor", "preview"].some((id) => before[id] === false && layout.open[id] !== false)) {
+    relaxContentWidths();
   }
 }
 
@@ -289,6 +303,16 @@ function eventClientX(ev) {
   return null;
 }
 
+// The 120ms grid transition would make panes lag the pointer and leave the
+// next drag measuring mid-animation widths.
+function setResizing(on) {
+  const d = doc();
+  const shell = d && typeof d.getElementById === "function" ? d.getElementById("shell") : null;
+  if (shell?.classList && typeof shell.classList.toggle === "function") {
+    shell.classList.toggle("is-resizing", on);
+  }
+}
+
 function onSplitterDown(ev) {
   if (drag) return;
   const target = ev?.currentTarget && isSplitterEl(ev.currentTarget) ? ev.currentTarget : ev?.target;
@@ -300,6 +324,7 @@ function onSplitterDown(ev) {
   if (startX == null) return;
   if (typeof ev.preventDefault === "function") ev.preventDefault();
   freezeVisiblePaneWidths();
+  setResizing(true);
   drag = {
     left: pair[0],
     right: pair[1],
@@ -327,6 +352,7 @@ function endDrag() {
   const el = drag.el;
   const pointerId = drag.pointerId;
   drag = null;
+  setResizing(false);
   if (pointerId != null && el && typeof el.releasePointerCapture === "function") {
     try {
       el.releasePointerCapture(pointerId);
@@ -359,6 +385,13 @@ function onPointerUp(ev) {
   endDrag();
 }
 
+// Losing pointer capture is not a release: WebKit reports clientX=0 here, so
+// applying a delta would slam the left pane to its minimum. Keep the widths
+// from the last move and just end the drag.
+function onLostPointerCapture() {
+  endDrag();
+}
+
 function ensureSplitterBound(el) {
   if (!el || boundSplitters.has(el)) return;
   if (typeof el.addEventListener !== "function") return;
@@ -367,7 +400,7 @@ function ensureSplitterBound(el) {
   el.addEventListener("mousedown", onSplitterDown);
   el.addEventListener("pointerup", onPointerUp);
   el.addEventListener("mouseup", onPointerUp);
-  el.addEventListener("lostpointercapture", onPointerUp);
+  el.addEventListener("lostpointercapture", onLostPointerCapture);
 }
 
 function placeSplitters() {
@@ -474,12 +507,40 @@ function applyPane(el, open) {
   }
 }
 
+// Grid columns place the panes; DOM order only sets tab order. Moving a node
+// resets its scroll, drops focus and pointer capture, and reloads iframes, so
+// only re-append when the order really changed.
+function syncPaneOrder(d, shell) {
+  if (!shell || typeof shell.appendChild !== "function") return;
+  const want = layout.order.map((id) => d.getElementById(id)).filter(Boolean);
+  const have = Array.from(shell.children || []).filter((el) => want.includes(el));
+  if (have.length === want.length && have.every((el, i) => el === want[i])) return;
+  for (const el of want) shell.appendChild(el);
+}
+
+// While the explorer is hidden, #explorer-reopen keeps the sidebar toggle and
+// Settings reachable by mouse; CSS pads #shell by its width.
+function syncExplorerReopen(d) {
+  const reopen = d.getElementById("explorer-reopen");
+  if (reopen) reopen.hidden = layout.open.explorer !== false;
+}
+
+function reopenControlWidth() {
+  const d = doc();
+  const reopen = d && typeof d.getElementById === "function" ? d.getElementById("explorer-reopen") : null;
+  if (!reopen || reopen.hidden) return 0;
+  const width = reopen.getBoundingClientRect?.()?.width;
+  return typeof width === "number" && Number.isFinite(width) && width > 0 ? width : 0;
+}
+
 function applyLayoutToDom() {
   const d = doc();
   layout.order = normalizeOrder(layout.order);
   if (!d || typeof d.getElementById !== "function") return;
   const shell = d.getElementById("shell");
   const cols = [];
+  syncExplorerReopen(d);
+  const fit = fittedWidths();
   const visibleContent = layout.order.filter(
     (id) => id !== "explorer" && layout.open[id] !== false,
   );
@@ -490,12 +551,12 @@ function applyLayoutToDom() {
     applyPane(el, open);
     if (id === "explorer") {
       if (el?.style) el.style.gridColumn = "1";
-      cols.push(columnFor(id));
+      cols.push(columnFor(id, fit));
       continue;
     }
     if (open) {
       if (el?.style) el.style.gridColumn = String(visibleContent.indexOf(id) + 2);
-      cols.push(columnFor(id));
+      cols.push(columnFor(id, fit));
     } else if (el?.style) {
       el.style.gridColumn = "";
     }
@@ -503,12 +564,7 @@ function applyLayoutToDom() {
   if (shell && shell.style) {
     shell.style.gridTemplateColumns = cols.join(" ");
   }
-  if (shell && typeof shell.appendChild === "function") {
-    for (const id of layout.order) {
-      const el = d.getElementById(id);
-      if (el) shell.appendChild(el);
-    }
-  }
+  syncPaneOrder(d, shell);
   syncLayoutControls();
   placeSplitters();
 }
@@ -595,10 +651,14 @@ function applyWindowSize() {
       const win = getCurrent();
       if (win && typeof win.setSize === "function") {
         const ret = win.setSize(size);
-        if (ret && typeof ret.catch === "function") ret.catch(() => {});
+        if (ret && typeof ret.catch === "function") {
+          ret.catch((err) => console.error("LightMD: could not restore the window size", err));
+        }
       }
     }
-  } catch {}
+  } catch (err) {
+    console.error("LightMD: could not restore the window size", err);
+  }
 }
 
 export function persistLayout() {
@@ -612,7 +672,6 @@ export function persistLayout() {
     }
     return;
   }
-  captureWidths();
   clampOpenPaneWidths();
   layout.order = normalizeOrder(layout.order);
   const size = windowSize();
@@ -706,6 +765,7 @@ export function restoreLayout() {
   if (Number.isFinite(width) && width > 0) layout.window.width = width;
   if (Number.isFinite(height) && height > 0) layout.window.height = height;
   if (typeof parsed.remember === "boolean") layout.remember = parsed.remember;
+  ensureOpenPane({ explorer: true, editor: true, preview: true });
   clampOpenPaneWidths();
   applyWindowSize();
   applyLayoutToDom();
@@ -713,13 +773,16 @@ export function restoreLayout() {
 
 export function collapsePane(id, collapsed) {
   if (!isPaneId(id)) return;
+  const before = { ...layout.open };
   layout.open[id] = !collapsed;
-  relaxContentWidths();
+  ensureOpenPane(before);
+  relaxIfContentReopened(before);
   applyLayoutToDom();
   persistLayout();
 }
 
 export function setLayout(nameOrState) {
+  const before = { ...layout.open };
   if (nameOrState === "editor-only" || nameOrState === "editorOnly") {
     layout.open.explorer = false;
     layout.open.editor = true;
@@ -753,7 +816,8 @@ export function setLayout(nameOrState) {
   } else {
     return;
   }
-  relaxContentWidths();
+  ensureOpenPane(before);
+  relaxIfContentReopened(before);
   applyLayoutToDom();
   persistLayout();
 }
@@ -808,6 +872,7 @@ function bindLayoutControls() {
   bindSidebarToggle();
   if (typeof globalThis.addEventListener === "function") {
     globalThis.addEventListener("resize", () => {
+      applyLayoutToDom();
       persistLayout();
     });
   }
@@ -818,6 +883,12 @@ function bindLayoutControls() {
 function bindSidebarToggle() {
   const d = doc();
   if (!d || typeof d.getElementById !== "function") return;
+  const reopen = d.getElementById("explorer-reopen-toggle");
+  if (reopen && typeof reopen.addEventListener === "function") {
+    reopen.addEventListener("click", () => {
+      collapsePane("explorer", false);
+    });
+  }
   const seen = new Set();
   for (const id of SIDEBAR_TOGGLE_IDS) {
     const btn = d.getElementById(id);
@@ -829,18 +900,19 @@ function bindSidebarToggle() {
   }
 }
 
+// Each init step reports its own failure, so one bug can't hide the other.
 try {
   restoreLayout();
-} catch {
-  // DOM-optional: Node imports this module with a document mock.
+} catch (err) {
+  console.error("LightMD: could not restore the layout", err);
 }
 
-try {
-  bindLayoutControls();
-} catch {
-  // mock document has no addEventListener
+if (doc() && typeof doc().getElementById === "function") {
+  try {
+    bindLayoutControls();
+  } catch (err) {
+    console.error("LightMD: could not bind the layout controls", err);
+  }
 }
 
-try {
-  globalThis.lightmdRefreshLayout = refreshLayout;
-} catch {}
+globalThis.lightmdRefreshLayout = refreshLayout;

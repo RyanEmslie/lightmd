@@ -8,7 +8,7 @@ import { session, persistSession } from "./session.js";
 import { htmlJs, setHtmlJsEnabled } from "./html-viewer.js";
 import { preview } from "./preview.js";
 import { findOptions } from "./find.js";
-import { layout, persistLayout, setLayout } from "./layout.js";
+import { layout, persistLayout, refreshLayout } from "./layout.js";
 
 export {
   palettes,
@@ -44,6 +44,85 @@ export const defaults = {
   htmlJs: false,
 };
 
+// Read by the explorer's displayName() through the #show-extensions checkbox.
+export const workspacePrefs = {
+  showExtensions: true,
+};
+
+const SETTINGS_KEY = "lightmd.settings";
+
+function isBoolean(value) {
+  return typeof value === "boolean";
+}
+
+function numberIn(min, max, integer = false) {
+  return (value) =>
+    typeof value === "number" &&
+    Number.isFinite(value) &&
+    value >= min &&
+    value <= max &&
+    (!integer || Number.isInteger(value));
+}
+
+// Each saved setting: its key in lightmd.settings, the object and property it
+// lives on, and what a valid restored value is (ranges match the inputs).
+const PERSISTED = [
+  ["editorFontSize", editorDefaults, "fontSize", numberIn(8, 48)],
+  ["editorLineHeight", editorDefaults, "lineHeight", numberIn(1, 3)],
+  ["previewFontSize", previewDefaults, "fontSize", numberIn(8, 48)],
+  ["previewLineHeight", previewDefaults, "lineHeight", numberIn(1, 3)],
+  ["tabSize", editorDefaults, "tabSize", numberIn(1, 8, true)],
+  ["wrap", editorDefaults, "lineWrapping", isBoolean],
+  ["lineNumbers", editorDefaults, "lineNumbers", isBoolean],
+  ["activeLine", editorDefaults, "highlightActiveLine", isBoolean],
+  ["softTabs", editorDefaults, "softTabs", isBoolean],
+  ["frontmatter", editorDefaults, "frontmatter", isBoolean],
+  ["livePreview", preview, "live", isBoolean],
+  ["autosave", autosave, "enabled", isBoolean],
+  ["autosaveDelay", autosave, "delay", numberIn(1, 3600000)],
+  ["findCaseSensitive", findOptions, "caseSensitive", isBoolean],
+  ["findWholeWord", findOptions, "wholeWord", isBoolean],
+  ["showExtensions", workspacePrefs, "showExtensions", isBoolean],
+];
+
+function storage() {
+  try {
+    return globalThis.localStorage;
+  } catch {
+    return null;
+  }
+}
+
+export function persistSettings() {
+  const ls = storage();
+  if (!ls || typeof ls.setItem !== "function") return;
+  const payload = {};
+  for (const [key, target, prop] of PERSISTED) payload[key] = target[prop];
+  try {
+    ls.setItem(SETTINGS_KEY, JSON.stringify(payload));
+  } catch (err) {
+    console.error("LightMD: could not save settings", err);
+  }
+}
+
+// Runs when this module loads, so editor.js builds CodeMirror with the saved
+// values. Anything missing, mistyped or out of range keeps its default.
+export function restoreSettings() {
+  const ls = storage();
+  const raw = ls && typeof ls.getItem === "function" ? ls.getItem(SETTINGS_KEY) : null;
+  if (raw == null || raw === "") return;
+  let parsed;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    return;
+  }
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return;
+  for (const [key, target, prop, valid] of PERSISTED) {
+    if (valid(parsed[key])) target[prop] = parsed[key];
+  }
+}
+
 function doc() {
   return typeof globalThis.document !== "undefined" ? globalThis.document : null;
 }
@@ -75,7 +154,7 @@ export function closeSettings() {
   if (shell) {
     shell.hidden = false;
     if (shell.style) shell.style.display = "";
-    setLayout({ open: { ...layout.open }, order: layout.order.slice() });
+    refreshLayout();
   }
 }
 
@@ -210,13 +289,22 @@ function syncFromState() {
   if (folder) folder.value = session.defaultFolder == null ? "" : String(session.defaultFolder);
   const remember = d.getElementById("settings-remember-layout");
   if (remember) remember.checked = layout.remember !== false;
+  const extensions = d.getElementById("show-extensions");
+  if (extensions) extensions.checked = !!workspacePrefs.showExtensions;
   syncThemeSelects();
   syncWorkspaceControls();
   syncHtmlJsControl();
 }
 
+// Every Settings control binds through here, so each change is saved in one
+// place after its handler has updated the state.
 function on(el, type, fn) {
-  if (el && typeof el.addEventListener === "function") el.addEventListener(type, fn);
+  if (el && typeof el.addEventListener === "function") {
+    el.addEventListener(type, (event) => {
+      fn(event);
+      if (type === "change") persistSettings();
+    });
+  }
 }
 
 let bound = false;
@@ -232,6 +320,9 @@ export function bindSettings() {
 
   on(d.getElementById("settings-open"), "click", () => {
     toggleSettings();
+  });
+  on(d.getElementById("explorer-reopen-settings"), "click", () => {
+    openSettings();
   });
   on(d.getElementById("settings-close"), "click", () => {
     closeSettings();
@@ -267,7 +358,7 @@ export function bindSettings() {
     }
     for (const item of d.querySelectorAll?.("[data-settings-target]") || []) {
       const target = d.getElementById(`settings-${item.getAttribute("data-settings-target")}`);
-      item.hidden = !!query && !target?.hidden;
+      item.hidden = !!target?.hidden;
     }
     const noResults = d.getElementById("settings-no-results");
     if (noResults) noResults.hidden = matches !== 0;
@@ -357,6 +448,9 @@ export function bindSettings() {
     layout.remember = !!event.target.checked;
     persistLayout();
   });
+  on(d.getElementById("show-extensions"), "change", (event) => {
+    workspacePrefs.showExtensions = !!event.target.checked;
+  });
 
   syncFromState();
 }
@@ -366,7 +460,16 @@ export function mountSettings() {
 }
 
 try {
-  bindSettings();
-} catch {
-  // Node import / mock document
+  restoreSettings();
+} catch (err) {
+  console.error("LightMD: could not restore settings", err);
+}
+
+if (doc() && typeof doc().getElementById === "function") {
+  try {
+    applyPreviewFont();
+    bindSettings();
+  } catch (err) {
+    console.error("LightMD: could not bind Settings", err);
+  }
 }
