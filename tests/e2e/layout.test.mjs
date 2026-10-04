@@ -356,6 +356,8 @@ test("Settings changes survive a relaunch and apply before the editor mounts", a
     await app.page.uncheck("#settings-word-wrap");
     await app.page.fill("#editor-font-size", "18");
     await app.page.locator("#editor-font-size").dispatchEvent("change");
+    await app.page.fill("#preview-font-size", "20");
+    await app.page.locator("#preview-font-size").dispatchEvent("change");
     await app.page.uncheck("#show-extensions");
     await app.page.click("#settings-close");
 
@@ -363,16 +365,16 @@ test("Settings changes survive a relaunch and apply before the editor mounts", a
     const state = await app.page.evaluate(() => ({
       gutter: !!document.querySelector("#editor-view .cm-lineNumbers"),
       wrapping: document.querySelector("#editor-view .cm-content").classList.contains("cm-lineWrapping"),
-      fontSize: getComputedStyle(document.querySelector("#editor-view .cm-content")).fontSize,
+      previewFontSize: getComputedStyle(document.getElementById("preview-body")).fontSize,
       lineNumbersBox: document.getElementById("show-line-numbers").checked,
-      fontBox: document.getElementById("editor-font-size").value,
+      editorFontBox: document.getElementById("editor-font-size").value,
     }));
     assert.deepEqual(state, {
       gutter: true,
       wrapping: false,
-      fontSize: "18px",
+      previewFontSize: "20px",
       lineNumbersBox: true,
-      fontBox: "18",
+      editorFontBox: "18",
     });
     await app.openFolder();
     assert.equal(
