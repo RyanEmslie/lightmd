@@ -31,8 +31,20 @@ export const preview = {
   live: true,
 };
 
-const imageCache = new Map();
+// Workspace images become data: URLs. Reads in flight are shared, misses are
+// remembered for missTtlMs, and the cache keeps at most maxChars of data URLs,
+// dropping the least recently used first.
+export const previewImageCache = {
+  maxChars: 50 * 1024 * 1024,
+  missTtlMs: 5000,
+};
+const imageCache = new Map(); // key -> data URL, least recently used first
+let imageCacheChars = 0;
+const imageReads = new Map(); // key -> pending read
+const imageMisses = new Map(); // key -> Date.now() when the miss expires
 let rewriteSeq = 0;
+// The markdown src of an <img> whose src was replaced by a data: URL.
+const ORIGINAL_SRC = "data-lightmd-src";
 
 function hasScheme(src) {
   return /^(?:[a-z][a-z0-9+.-]*:|\/\/)/i.test(src);
@@ -126,23 +138,66 @@ export function resolvePreviewImage(src, workspace, fileRelative = "") {
   return relative;
 }
 
-async function loadWorkspaceImage(workspace, relative) {
-  const key = `${workspace}\0${relative}`;
-  const cached = imageCache.get(key);
-  if (cached) return cached;
-  const invoke = globalThis.__TAURI__?.core?.invoke;
-  if (typeof invoke !== "function") return null;
-  try {
-    const bytes = await invoke("read_workspace_image", {
-      path: workspace,
-      relative,
-    });
-    const url = bytesToDataUrl(bytes, mimeFromRelative(relative));
-    if (url) imageCache.set(key, url);
-    return url;
-  } catch {
-    return null;
+function cacheImage(key, url) {
+  if (url.length > previewImageCache.maxChars) return;
+  imageCache.set(key, url);
+  imageCacheChars += url.length;
+  for (const [oldKey, oldUrl] of imageCache) {
+    if (imageCacheChars <= previewImageCache.maxChars) break;
+    imageCache.delete(oldKey);
+    imageCacheChars -= oldUrl.length;
   }
+}
+
+function cachedImage(key) {
+  const url = imageCache.get(key);
+  if (url === undefined) return undefined;
+  imageCache.delete(key);
+  imageCache.set(key, url);
+  return url;
+}
+
+function rememberMiss(key) {
+  imageMisses.set(key, Date.now() + previewImageCache.missTtlMs);
+  return null;
+}
+
+// Forget cached images and misses so files changed on disk are read again.
+// Reads already in flight see the file as it is now, so they stay shared.
+export function invalidatePreviewImages() {
+  imageCache.clear();
+  imageCacheChars = 0;
+  imageMisses.clear();
+}
+
+function loadWorkspaceImage(workspace, relative) {
+  const key = `${workspace}\0${relative}`;
+  const cached = cachedImage(key);
+  if (cached !== undefined) return Promise.resolve(cached);
+  const pending = imageReads.get(key);
+  if (pending) return pending;
+  if (imageMisses.has(key)) {
+    if (Date.now() < imageMisses.get(key)) return Promise.resolve(null);
+    imageMisses.delete(key);
+  }
+  const invoke = globalThis.__TAURI__?.core?.invoke;
+  if (typeof invoke !== "function") return Promise.resolve(null);
+  const read = Promise.resolve()
+    .then(() => invoke("read_workspace_image", { path: workspace, relative }))
+    .then(
+      (bytes) => {
+        const url = bytesToDataUrl(bytes, mimeFromRelative(relative));
+        if (!url) return rememberMiss(key);
+        cacheImage(key, url);
+        return url;
+      },
+      () => rememberMiss(key),
+    )
+    .finally(() => {
+      imageReads.delete(key);
+    });
+  imageReads.set(key, read);
+  return read;
 }
 
 export async function rewritePreviewImages(root, workspace, fileRelative) {
@@ -151,7 +206,7 @@ export async function rewritePreviewImages(root, workspace, fileRelative) {
   const imgs = [...root.querySelectorAll("img")];
   await Promise.all(
     imgs.map(async (img) => {
-      const src = img.getAttribute("src") || "";
+      const src = img.getAttribute(ORIGINAL_SRC) || img.getAttribute("src") || "";
       if (!src) return;
       if (isBlockedImageSrc(src)) {
         img.removeAttribute("src");
@@ -162,6 +217,7 @@ export async function rewritePreviewImages(root, workspace, fileRelative) {
       if (relative == null || !workspace) return;
       const url = await loadWorkspaceImage(workspace, relative);
       if (!url || seq !== rewriteSeq) return;
+      img.setAttribute(ORIGINAL_SRC, src);
       img.setAttribute("src", url);
     }),
   );
