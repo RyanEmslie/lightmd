@@ -36,6 +36,8 @@
 //   page, backend, root, dialog, files (live Map of root), writes, invokes
 //   errors         console errors and uncaught page errors, in order
 //   openFolder(path?), openFile(relative), type(text, { at: "end" | "cursor" })
+//   clickTab(relative)  clicks that file's tab in the tab strip
+//   undo()         focuses the editor and presses Cmd/Ctrl+Z
 //   editorText(), previewText(), isDirty()
 //   settle()       wait until no IPC call is in flight, then two frames
 //   waitFor(fn), waitForWrite(relative, { contents?, timeout? })
@@ -229,6 +231,16 @@ export async function launchApp(options = {}) {
       await page.click(".cm-content");
       if (at === "end") await page.keyboard.press("ControlOrMeta+End");
       await page.keyboard.type(text);
+    },
+
+    async clickTab(relative) {
+      await page.click(`#editor-tabs [role="tab"][data-relative=${JSON.stringify(relative)}] .tab-name`);
+      await settle();
+    },
+
+    async undo() {
+      await page.click(".cm-content");
+      await page.keyboard.press("ControlOrMeta+z");
     },
 
     editorText() {
