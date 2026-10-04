@@ -222,10 +222,12 @@ async function assertFitsWindow(app, what) {
   const fit = await app.page.evaluate(() => ({
     innerWidth,
     scrollWidth: document.documentElement.scrollWidth,
-    panes: ["explorer", "editor", "preview"].map((id) => {
-      const r = document.getElementById(id).getBoundingClientRect();
-      return { id, left: r.left, right: r.right, width: r.width };
-    }),
+    panes: ["explorer", "editor", "preview"]
+      .filter((id) => !document.getElementById(id).hidden)
+      .map((id) => {
+        const r = document.getElementById(id).getBoundingClientRect();
+        return { id, left: r.left, right: r.right, width: r.width };
+      }),
   }));
   for (const p of fit.panes) {
     assert.ok(p.right <= fit.innerWidth + 1, `${what}: #${p.id} ends at ${p.right}px, past the ${fit.innerWidth}px window`);

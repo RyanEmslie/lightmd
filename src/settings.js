@@ -233,6 +233,9 @@ export function bindSettings() {
   on(d.getElementById("settings-open"), "click", () => {
     toggleSettings();
   });
+  on(d.getElementById("explorer-reopen-settings"), "click", () => {
+    openSettings();
+  });
   on(d.getElementById("settings-close"), "click", () => {
     closeSettings();
   });

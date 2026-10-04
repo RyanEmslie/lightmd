@@ -110,7 +110,7 @@ function fittedWidths() {
   const pinned = vis.filter(isPinned);
   const out = {};
   for (const id of pinned) out[id] = clampOpenWidth(layout.widths[id]);
-  const room = windowSize().width - (vis.length - pinned.length) * MIN_PANE;
+  const room = windowSize().width - reopenControlWidth() - (vis.length - pinned.length) * MIN_PANE;
   const total = pinned.reduce((sum, id) => sum + out[id], 0);
   const spare = total - pinned.length * MIN_PANE;
   if (total > room && spare > 0) {
@@ -133,6 +133,15 @@ function columnFor(id, fit) {
 
 function visiblePaneIds() {
   return layout.order.filter((id) => isPaneId(id) && layout.open[id] !== false);
+}
+
+// With no open pane the window is blank and has no control to bring one back,
+// so fall back to the previous state (or every pane).
+function ensureOpenPane(fallback) {
+  if (PANE_IDS.some((id) => layout.open[id] !== false)) return;
+  Object.assign(layout.open, fallback);
+  if (PANE_IDS.some((id) => layout.open[id] !== false)) return;
+  for (const id of PANE_IDS) layout.open[id] = true;
 }
 
 function relaxContentWidths() {
@@ -509,12 +518,28 @@ function syncPaneOrder(d, shell) {
   for (const el of want) shell.appendChild(el);
 }
 
+// While the explorer is hidden, #explorer-reopen keeps the sidebar toggle and
+// Settings reachable by mouse; CSS pads #shell by its width.
+function syncExplorerReopen(d) {
+  const reopen = d.getElementById("explorer-reopen");
+  if (reopen) reopen.hidden = layout.open.explorer !== false;
+}
+
+function reopenControlWidth() {
+  const d = doc();
+  const reopen = d && typeof d.getElementById === "function" ? d.getElementById("explorer-reopen") : null;
+  if (!reopen || reopen.hidden) return 0;
+  const width = reopen.getBoundingClientRect?.()?.width;
+  return typeof width === "number" && Number.isFinite(width) && width > 0 ? width : 0;
+}
+
 function applyLayoutToDom() {
   const d = doc();
   layout.order = normalizeOrder(layout.order);
   if (!d || typeof d.getElementById !== "function") return;
   const shell = d.getElementById("shell");
   const cols = [];
+  syncExplorerReopen(d);
   const fit = fittedWidths();
   const visibleContent = layout.order.filter(
     (id) => id !== "explorer" && layout.open[id] !== false,
@@ -736,6 +761,7 @@ export function restoreLayout() {
   if (Number.isFinite(width) && width > 0) layout.window.width = width;
   if (Number.isFinite(height) && height > 0) layout.window.height = height;
   if (typeof parsed.remember === "boolean") layout.remember = parsed.remember;
+  ensureOpenPane({ explorer: true, editor: true, preview: true });
   clampOpenPaneWidths();
   applyWindowSize();
   applyLayoutToDom();
@@ -745,6 +771,7 @@ export function collapsePane(id, collapsed) {
   if (!isPaneId(id)) return;
   const before = { ...layout.open };
   layout.open[id] = !collapsed;
+  ensureOpenPane(before);
   relaxIfContentReopened(before);
   applyLayoutToDom();
   persistLayout();
@@ -785,6 +812,7 @@ export function setLayout(nameOrState) {
   } else {
     return;
   }
+  ensureOpenPane(before);
   relaxIfContentReopened(before);
   applyLayoutToDom();
   persistLayout();
@@ -851,6 +879,12 @@ function bindLayoutControls() {
 function bindSidebarToggle() {
   const d = doc();
   if (!d || typeof d.getElementById !== "function") return;
+  const reopen = d.getElementById("explorer-reopen-toggle");
+  if (reopen && typeof reopen.addEventListener === "function") {
+    reopen.addEventListener("click", () => {
+      collapsePane("explorer", false);
+    });
+  }
   const seen = new Set();
   for (const id of SIDEBAR_TOGGLE_IDS) {
     const btn = d.getElementById(id);
