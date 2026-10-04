@@ -1026,8 +1026,14 @@ mod tests {
             .iter()
             .map(|e| e.relative_path.replace('\\', "/"))
             .collect();
-        assert!(got.contains("ok.md"), "readable files must still be listed: {got:?}");
-        assert!(got.contains("locked"), "the unreadable folder itself is still listed: {got:?}");
+        assert!(
+            got.contains("ok.md"),
+            "readable files must still be listed: {got:?}"
+        );
+        assert!(
+            got.contains("locked"),
+            "the unreadable folder itself is still listed: {got:?}"
+        );
         assert!(
             !got.iter().any(|p| p == ".git" || p.starts_with(".git/")),
             "list must skip .git folders: {got:?}"
@@ -1105,8 +1111,9 @@ mod tests {
         std::fs::write(&path, "disk\n").expect("seed note.md");
         set_modified_ms(&path, 1_700_000_000_000);
 
-        let err = super::write_file_if_unchanged(&root, "note.md", "mine\n", Some(1_600_000_000_000))
-            .expect_err("a stale expected mtime must be refused");
+        let err =
+            super::write_file_if_unchanged(&root, "note.md", "mine\n", Some(1_600_000_000_000))
+                .expect_err("a stale expected mtime must be refused");
         assert_eq!(err.to_string(), "conflict: file changed on disk");
         assert_eq!(
             std::fs::read_to_string(&path).expect("read note.md"),
@@ -1117,16 +1124,24 @@ mod tests {
         let modified =
             super::write_file_if_unchanged(&root, "note.md", "mine\n", Some(1_700_000_000_000))
                 .expect("a matching expected mtime must write");
-        assert_eq!(std::fs::read_to_string(&path).expect("read note.md"), "mine\n");
+        assert_eq!(
+            std::fs::read_to_string(&path).expect("read note.md"),
+            "mine\n"
+        );
         assert_eq!(
             modified,
-            super::stat_file(&root, "note.md").expect("stat note.md").modified_ms,
+            super::stat_file(&root, "note.md")
+                .expect("stat note.md")
+                .modified_ms,
             "write_file_if_unchanged must return the new modified_ms"
         );
 
         super::write_file_if_unchanged(&root, "note.md", "forced\n", None)
             .expect("no expected mtime writes unconditionally");
-        assert_eq!(std::fs::read_to_string(&path).expect("read note.md"), "forced\n");
+        assert_eq!(
+            std::fs::read_to_string(&path).expect("read note.md"),
+            "forced\n"
+        );
 
         super::write_file_if_unchanged(&root, "gone.md", "recreated\n", Some(1))
             .expect("a missing file is not a conflict");
@@ -1232,7 +1247,10 @@ mod tests {
             "write_workspace_file",
             json!({ "path": path, "relative": "note.md", "contents": "one\n" }),
         );
-        assert!(modified.is_u64(), "write_workspace_file must return modified_ms, got {modified}");
+        assert!(
+            modified.is_u64(),
+            "write_workspace_file must return modified_ms, got {modified}"
+        );
 
         let stat = ipc_json(
             &webview,
@@ -1253,7 +1271,9 @@ mod tests {
         )
         .expect_err("a stale expectedModifiedMs must be refused");
         assert!(
-            conflict.as_str().is_some_and(|e| e.starts_with("conflict:")),
+            conflict
+                .as_str()
+                .is_some_and(|e| e.starts_with("conflict:")),
             "the rejection must start with \"conflict:\", got {conflict}"
         );
         let same = ipc_json(
