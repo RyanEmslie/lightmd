@@ -837,4 +837,38 @@ mod tests {
             "create_folder(root, \"\") must be Err"
         );
     }
+
+    #[cfg(unix)]
+    #[test]
+    fn list_skips_unreadable_folders_and_git() {
+        use std::os::unix::fs::PermissionsExt;
+        struct RestoreMode(PathBuf);
+        impl Drop for RestoreMode {
+            fn drop(&mut self) {
+                let _ = std::fs::set_permissions(&self.0, std::fs::Permissions::from_mode(0o755));
+            }
+        }
+
+        let (root, _cleanup) = temp_workspace("list-unreadable");
+        std::fs::write(root.join("ok.md"), "ok\n").expect("seed ok.md");
+        std::fs::create_dir_all(root.join("locked")).expect("locked folder");
+        std::fs::write(root.join("locked").join("hidden.md"), "hidden\n").expect("seed hidden.md");
+        std::fs::create_dir_all(root.join(".git").join("refs")).expect(".git folder");
+        std::fs::write(root.join(".git").join("notes.md"), "git\n").expect("seed .git/notes.md");
+        std::fs::set_permissions(root.join("locked"), std::fs::Permissions::from_mode(0o000))
+            .expect("chmod locked");
+        let _restore = RestoreMode(root.join("locked"));
+
+        let entries = list(&root).expect("one unreadable folder must not fail the whole listing");
+        let got: HashSet<String> = entries
+            .iter()
+            .map(|e| e.relative_path.replace('\\', "/"))
+            .collect();
+        assert!(got.contains("ok.md"), "readable files must still be listed: {got:?}");
+        assert!(got.contains("locked"), "the unreadable folder itself is still listed: {got:?}");
+        assert!(
+            !got.iter().any(|p| p == ".git" || p.starts_with(".git/")),
+            "list must skip .git folders: {got:?}"
+        );
+    }
 }
