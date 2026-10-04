@@ -314,7 +314,6 @@ static TEMP_COUNTER: AtomicU64 = AtomicU64::new(0);
 /// `path`, so a crash or full disk never leaves a truncated file behind.
 fn atomic_write(path: &Path, contents: &[u8]) -> io::Result<()> {
     let parent = path.parent().ok_or_else(outside_workspace)?;
-    let name = path.file_name().ok_or_else(outside_workspace)?;
     let existing = match fs::metadata(path) {
         Ok(meta) => {
             // Renaming over the file would bypass its own write permission.
@@ -334,15 +333,21 @@ fn atomic_write(path: &Path, contents: &[u8]) -> io::Result<()> {
         options.mode(0o600);
     }
     let (temp, file) = loop {
+        // A short name that does not embed the target's, so it never exceeds
+        // the file name length limit.
         let temp = parent.join(format!(
-            ".{}.{}-{}.tmp",
-            name.to_string_lossy(),
+            ".lightmd-{}-{}.tmp",
             std::process::id(),
             TEMP_COUNTER.fetch_add(1, Ordering::Relaxed)
         ));
         match options.open(&temp) {
             Ok(file) => break (temp, file),
             Err(e) if e.kind() == io::ErrorKind::AlreadyExists => continue,
+            // A writable file in a read-only folder saved fine before saves went
+            // through a temp file, so write that one in place.
+            Err(e) if e.kind() == io::ErrorKind::PermissionDenied && existing.is_some() => {
+                return write_in_place(path, contents);
+            }
             Err(e) => return Err(e),
         }
     };
@@ -367,7 +372,21 @@ fn replace_with_temp(
     }
     file.sync_all()?;
     drop(file);
-    fs::rename(temp, path)
+    fs::rename(temp, path)?;
+    // Persist the rename itself. Best effort: the contents are already saved, and
+    // some filesystems refuse to sync a folder.
+    #[cfg(unix)]
+    if let Some(Ok(dir)) = path.parent().map(fs::File::open) {
+        let _ = dir.sync_all();
+    }
+    Ok(())
+}
+
+/// The old in-place save, used only when no temp file can be created.
+fn write_in_place(path: &Path, contents: &[u8]) -> io::Result<()> {
+    let mut file = fs::File::create(path)?;
+    file.write_all(contents)?;
+    file.sync_all()
 }
 
 pub fn create_folder(root: &Path, relative: impl AsRef<Path>) -> io::Result<()> {
