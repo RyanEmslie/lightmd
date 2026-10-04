@@ -20,7 +20,7 @@ async function renderImage(markdown, { file = "docs/guide.md", files = {} } = {}
     const body = doc.getElementById("preview-body");
     body.insertAdjacentHTML("afterbegin", renderPreview(markdown));
     const img = body.querySelector("img");
-    const rendered = img.getAttribute("src");
+    const rendered = img.getAttribute("data-lightmd-src") ?? img.getAttribute("src");
     await rewritePreviewImages(body, root, file);
     const reads = backend.invokes
       .filter((call) => call.cmd === "read_workspace_image")
@@ -83,4 +83,14 @@ test("resolvePreviewImage decodes the same way", () => {
   } finally {
     if (previous !== undefined) globalThis.__TAURI__ = previous;
   }
+});
+
+test("a workspace image renders without a src until it is resolved, so the webview never fetches it", () => {
+  const html = renderPreview("![pic](docs/pic.png) ![remote](https://x.test/a.png) ![inline](data:image/png;base64,AAAA)");
+  const imgs = [...html.matchAll(/<img\b[^>]*>/g)].map((m) => m[0]);
+  assert.equal(imgs.length, 3);
+  assert.doesNotMatch(imgs[0], /\ssrc=/, "a relative src would make the webview request a URL that 404s");
+  assert.match(imgs[0], /\sdata-lightmd-src="docs\/pic.png"/);
+  assert.match(imgs[1], /\ssrc=""/, "remote images stay blocked");
+  assert.match(imgs[2], /\ssrc="data:image\/png;base64,AAAA"/, "inline data: images keep their src");
 });
