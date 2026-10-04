@@ -75,9 +75,13 @@ function mimeFromRelative(relative) {
   return "image/png";
 }
 
+// read_workspace_image returns raw bytes, which arrive as an ArrayBuffer.
 function toUint8Array(bytes) {
   if (bytes instanceof Uint8Array) return bytes;
-  if (ArrayBuffer.isView(bytes)) return new Uint8Array(bytes.buffer);
+  if (bytes instanceof ArrayBuffer) return new Uint8Array(bytes);
+  if (ArrayBuffer.isView(bytes)) {
+    return new Uint8Array(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  }
   if (bytes && Array.isArray(bytes.data)) return Uint8Array.from(bytes.data);
   if (Array.isArray(bytes)) return Uint8Array.from(bytes);
   return null;
