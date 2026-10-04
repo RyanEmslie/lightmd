@@ -172,3 +172,126 @@ test("toggling the preview with the keyboard keeps focus in the editor", async (
     await app.close();
   }
 });
+
+async function dragSplitter(app, paneId, dx, { steps = 3, pause = 50, settle = true } = {}) {
+  const sp = await splitterPoint(app.page, paneId);
+  await app.page.mouse.move(sp.x, sp.y);
+  await app.page.mouse.down();
+  for (let i = 1; i <= steps; i++) {
+    await app.page.mouse.move(sp.x + (dx * i) / steps, sp.y);
+    await app.page.waitForTimeout(pause);
+  }
+  await app.page.mouse.up();
+  if (settle) await settleLayout(app);
+}
+
+function assertWidthsNear(actual, expected, what) {
+  for (const id of ["explorer", "editor", "preview"]) {
+    assert.ok(
+      near(actual[id], expected[id]),
+      `${what}: #${id} should stay ${expected[id]}px, got ${actual[id]}px (${JSON.stringify(actual)})`,
+    );
+  }
+}
+
+test("a quick splitter flick saves the widths it ends at, so they survive a file open and a relaunch", async () => {
+  const app = await launchApp();
+  try {
+    await openNote(app);
+    await dragSplitter(app, "editor", -210, { steps: 3, pause: 16, settle: false });
+    await app.page.waitForTimeout(400);
+    const dragged = await paneWidths(app.page);
+    const stored = (await storedLayout(app.page)).widths;
+    assert.ok(near(stored.editor, dragged.editor), `saved editor width ${stored.editor} must match ${dragged.editor}`);
+    assert.ok(near(stored.preview, dragged.preview), `saved preview width ${stored.preview} must match ${dragged.preview}`);
+
+    await app.openFile("other.md");
+    await settleLayout(app);
+    assertWidthsNear(await paneWidths(app.page), dragged, "after opening another file");
+
+    await app.reload();
+    await settleLayout(app);
+    assertWidthsNear(await paneWidths(app.page), dragged, "after a relaunch");
+    assert.deepEqual(app.errors, []);
+  } finally {
+    await app.close();
+  }
+});
+
+async function assertFitsWindow(app, what) {
+  const fit = await app.page.evaluate(() => ({
+    innerWidth,
+    scrollWidth: document.documentElement.scrollWidth,
+    panes: ["explorer", "editor", "preview"].map((id) => {
+      const r = document.getElementById(id).getBoundingClientRect();
+      return { id, left: r.left, right: r.right, width: r.width };
+    }),
+  }));
+  for (const p of fit.panes) {
+    assert.ok(p.right <= fit.innerWidth + 1, `${what}: #${p.id} ends at ${p.right}px, past the ${fit.innerWidth}px window`);
+    assert.ok(p.width >= 159, `${what}: #${p.id} is ${p.width}px, under the 160px minimum`);
+  }
+  assert.ok(fit.scrollWidth <= fit.innerWidth, `${what}: the page scrolls sideways (${fit.scrollWidth}px)`);
+}
+
+test("after a drag, a smaller window still shows every pane, including after a relaunch", async () => {
+  const app = await launchApp({ viewport: { width: 1600, height: 800 } });
+  try {
+    await openNote(app);
+    await dragSplitter(app, "editor", 150, { pause: 150 });
+    await app.page.setViewportSize({ width: 900, height: 800 });
+    await settleLayout(app);
+    await assertFitsWindow(app, "after shrinking the window");
+    await app.reload();
+    await settleLayout(app);
+    await assertFitsWindow(app, "after a relaunch at the smaller size");
+    assert.deepEqual(app.errors, []);
+  } finally {
+    await app.close();
+  }
+});
+
+test("the explorer keeps its width when the window grows and shrinks", async () => {
+  const app = await launchApp();
+  try {
+    await openNote(app);
+    const start = (await paneWidths(app.page)).explorer;
+    assert.ok(near(start, 240), `the explorer starts at 240px, got ${start}px`);
+    await app.page.setViewportSize({ width: 2400, height: 800 });
+    await app.openFile("other.md");
+    await settleLayout(app);
+    assert.ok(near((await paneWidths(app.page)).explorer, start), "a wide window must not widen the explorer");
+    await app.page.setViewportSize({ width: 1200, height: 800 });
+    await app.openFile("note.md");
+    await settleLayout(app);
+    assert.ok(near((await paneWidths(app.page)).explorer, start), "the explorer must not keep a width it was stretched to");
+    await app.reload();
+    await settleLayout(app);
+    assert.ok(near((await paneWidths(app.page)).explorer, start), "a relaunch must not restore a stretched explorer");
+    assert.deepEqual(app.errors, []);
+  } finally {
+    await app.close();
+  }
+});
+
+test("closing Settings and toggling the explorer keep a dragged editor/preview split", async () => {
+  const app = await launchApp();
+  try {
+    await openNote(app);
+    await dragSplitter(app, "editor", 180, { pause: 150 });
+    const dragged = await paneWidths(app.page);
+    await app.page.click("#settings-open");
+    await app.page.click("#settings-close");
+    await settleLayout(app);
+    assertWidthsNear(await paneWidths(app.page), dragged, "after closing Settings");
+
+    await app.page.click("#sidebar-toggle");
+    await settleLayout(app);
+    await app.page.keyboard.press("ControlOrMeta+1");
+    await settleLayout(app);
+    assertWidthsNear(await paneWidths(app.page), dragged, "after hiding and showing the explorer");
+    assert.deepEqual(app.errors, []);
+  } finally {
+    await app.close();
+  }
+});
