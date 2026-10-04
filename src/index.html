@@ -1361,6 +1361,7 @@
         // Bumped by every open/switch, so a slow read can't take over the editor
         // after the user has moved on.
         let navigation = 0;
+        let folderLoads = 0;
         const pendingReads = new Map();
 
         function setDirty(value) {
@@ -2113,6 +2114,7 @@
             window.lightmdCancelAutosave();
           }
           navigation += 1;
+          folderLoads += 1;
           openTabs = [];
           activeTab = null;
           showTab(null);
@@ -2151,12 +2153,14 @@
           if (!workspacePath) return;
           const root = workspacePath;
           const request = ++navigation;
+          const folderLoad = folderLoads;
           const open = findTab(root, relative);
           if (open) {
             await activateTab(open);
             return;
           }
           const doc = await readDocument(root, relative);
+          if (folderLoad !== folderLoads) return; // another folder was opened meanwhile
           let tab = findTab(root, relative);
           if (!tab) {
             tab = makeTab(root, relative, "");
@@ -2333,34 +2337,40 @@
             contents: withLineEnding(contents, eol),
           });
 
-          // The saved tab now is that file; a tab already showing it gives way.
+          // The saved tab now is that file. One tab per file: a tab already on
+          // it gives way, unless that one is on screen.
           let tab = source && openTabs.includes(source) ? source : null;
           const existing = findTab(root, relative);
           if (existing && existing !== tab) {
-            if (tab) openTabs.splice(openTabs.indexOf(existing), 1);
-            else tab = existing;
+            if (tab && existing !== activeTab) {
+              openTabs.splice(openTabs.indexOf(existing), 1);
+            } else {
+              if (tab) openTabs.splice(openTabs.indexOf(tab), 1);
+              tab = existing;
+            }
           }
           if (!tab) {
             tab = makeTab(root, relative, contents);
             openTabs.push(tab);
           }
-          const shown = tab === activeTab || !activeTab || existing === activeTab;
           tab.root = root;
           tab.relative = relative;
           tab.modifiedMs = typeof modified === "number" ? modified : null;
           tab.eol = eol;
           tab.putOff = false;
-          if (!shown) tab.contents = contents;
+          if (tab !== source) tab.contents = contents;
 
           // The explorer follows the saved file; other tabs keep their folders.
           if (!sameRoot(root, workspacePath)) {
             setWorkspaceRoot(root);
             persistOpenFolder(root);
           }
-          if (shown) {
-            activeTab = tab;
+          if (tab === activeTab) {
+            if (tab !== source) loadIntoEditor(contents, tab);
             currentRelative = relative;
             showActivePath();
+          } else if (!activeTab) {
+            showTab(tab);
           }
           // An edit typed during the write is still unsaved: autosave it next.
           const unsaved = tabText(tab) !== contents;
@@ -2493,7 +2503,7 @@
           if (!workspacePath) return;
           const relative = item.dataset.path;
           await applyFile(relative);
-          persistOpenFile(relative);
+          persistActiveTab();
         });
 
         buffer.addEventListener("input", () => {
