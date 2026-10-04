@@ -56,3 +56,39 @@ test("session restore reads the last file once and renders it once", async () =>
     rt.cleanup();
   }
 });
+
+test("the Default folder setting opens on launch when no last folder is stored", async () => {
+  const { rt, session } = await boot(
+    { workspaces: { "/ws/default": { files: { "d.md": "# D\n" } } } },
+    // What Settings > Workspace > Default folder saves.
+    { restore: true, defaultFolder: "/ws/default" },
+  );
+  try {
+    await session.restoreSession();
+    assert.equal(session.getSession().lastFolder, "/ws/default");
+    assert.ok(
+      rt.invokes.some((call) => call.cmd === "list_workspace" && call.args.path === "/ws/default"),
+      "the default folder must be opened",
+    );
+    assert.ok(rt.el("file-list").querySelector('li[data-path="d.md"]'), "its files are listed");
+  } finally {
+    rt.cleanup();
+  }
+});
+
+test("a stored last folder still wins over the Default folder", async () => {
+  const { rt, session } = await boot(
+    { workspaces: { "/ws/default": {} } },
+    { defaultFolder: "/ws/default", lastFolder: "/tmp/lightmd-ws" },
+  );
+  try {
+    await session.restoreSession();
+    assert.equal(session.getSession().lastFolder, "/tmp/lightmd-ws");
+    assert.equal(
+      rt.invokes.some((call) => call.cmd === "list_workspace" && call.args.path === "/ws/default"),
+      false,
+    );
+  } finally {
+    rt.cleanup();
+  }
+});
