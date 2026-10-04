@@ -191,20 +191,18 @@ async function restoreWorkspace() {
     }
   }
   if (!file) return;
-  const invoke = tauriInvoke();
-  if (!invoke) return;
   if (!folder) {
     session.lastFile = null;
     return;
   }
   try {
-    const body = await invoke("read_workspace_file", {
-      path: folder,
-      relative: file,
-    });
-    applyFileBody(body);
     if (typeof globalThis.lightmdOpenFile === "function") {
+      // The app glue reads, renders and tabs the file itself.
       await globalThis.lightmdOpenFile(file);
+    } else {
+      const invoke = tauriInvoke();
+      if (!invoke) return;
+      applyFileBody(await invoke("read_workspace_file", { path: folder, relative: file }));
     }
     persistSession({ lastFile: file, file: file });
   } catch {
