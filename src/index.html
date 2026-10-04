@@ -1720,17 +1720,23 @@
           }
         }
 
-        function loadIntoEditor(body) {
+        // Shows `tab`'s document (its own editor state and undo history), or a
+        // blank document with no tab.
+        function loadIntoEditor(body, tab = null) {
           if (typeof window.lightmdCancelAutosave === "function") {
             window.lightmdCancelAutosave();
           }
           const text = body == null ? "" : String(body);
           if (buffer) buffer.value = text;
-          if (window.lightmdEditor && typeof window.lightmdEditor.setDoc === "function") {
-            if (typeof window.lightmdRefreshLayout === "function") {
-              window.lightmdRefreshLayout();
-            }
-            window.lightmdEditor.setDoc(text);
+          const editor = window.lightmdEditor;
+          if (!editor) return;
+          if (typeof window.lightmdRefreshLayout === "function") {
+            window.lightmdRefreshLayout();
+          }
+          if (typeof editor.showDocument === "function") {
+            editor.showDocument(tab, text);
+          } else if (typeof editor.setDoc === "function") {
+            editor.setDoc(text);
           }
         }
 
@@ -1793,7 +1799,7 @@
           stashActive();
           activeRelative = key;
           currentRelative = isUntitledKey(key) ? null : tab.relative;
-          loadIntoEditor(tab.contents ?? "");
+          loadIntoEditor(tab.contents ?? "", tab);
           setDirty(!!tab.dirty);
           showActivePath();
           markActiveFile();
@@ -1885,12 +1891,13 @@
             relative,
           });
           stashActive();
-          openTabs.push({ relative, dirty: false, contents: body });
+          const opened = { relative, dirty: false, contents: body };
+          openTabs.push(opened);
           activeRelative = relative;
           currentRelative = relative;
           if (statusPath) statusPath.textContent = currentRelative;
           markActiveFile();
-          loadIntoEditor(body);
+          loadIntoEditor(body, opened);
           setDirty(false);
           renderTabs();
           setEditorSession(true);
