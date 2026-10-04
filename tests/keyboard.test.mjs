@@ -12,6 +12,15 @@ const htmlPath = join(srcDir, "index.html");
 const PANE_IDS = ["explorer", "editor", "preview"];
 const PANE_BY_DIGIT = { 1: "explorer", 2: "editor", 3: "preview" };
 
+// These checks press Ctrl chords, the Windows/Linux shortcuts. On macOS the
+// app listens for Cmd instead (see keyboard-platform.test.mjs), so pin a
+// non-Mac platform rather than depend on the host running the tests.
+Object.defineProperty(globalThis, "navigator", {
+  value: { platform: "Linux x86_64", userAgent: "" },
+  configurable: true,
+  writable: true,
+});
+
 const BIND_EXPORTS = [
   "bindKeyboard",
   "bindShortcuts",
