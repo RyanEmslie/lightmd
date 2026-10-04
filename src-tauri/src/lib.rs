@@ -1349,4 +1349,54 @@ mod tests {
             ])
         );
     }
+
+    #[test]
+    fn capabilities_grant_only_what_the_app_uses() {
+        use serde_json::json;
+        let capability: serde_json::Value =
+            serde_json::from_str(include_str!("../capabilities/default.json"))
+                .expect("capabilities/default.json must be JSON");
+        assert_eq!(capability["windows"], json!(["main"]));
+        let permissions = capability["permissions"]
+            .as_array()
+            .expect("permissions must be a list");
+        // layout.js restores the window size with setSize, and dialog confirm()
+        // and ask() both invoke plugin:dialog|message.
+        for required in [
+            "core:default",
+            "core:window:allow-set-size",
+            "dialog:allow-open",
+            "dialog:allow-save",
+            "dialog:allow-message",
+        ] {
+            assert!(
+                permissions.contains(&json!(required)),
+                "capabilities must grant {required}: {permissions:?}"
+            );
+        }
+        for broad in ["dialog:default", "opener:default"] {
+            assert!(
+                !permissions.contains(&json!(broad)),
+                "capabilities must not grant {broad}"
+            );
+        }
+        // The opener may open web links only: no reveal_item_in_dir, open_path,
+        // mailto: or tel:.
+        let opener: Vec<_> = permissions
+            .iter()
+            .filter(|p| {
+                p.as_str()
+                    .or_else(|| p["identifier"].as_str())
+                    .is_some_and(|id| id.starts_with("opener:"))
+            })
+            .collect();
+        assert_eq!(
+            opener,
+            [&json!({
+                "identifier": "opener:allow-open-url",
+                "allow": [{ "url": "http://*" }, { "url": "https://*" }]
+            })],
+            "the opener must be limited to http(s) URLs"
+        );
+    }
 }
