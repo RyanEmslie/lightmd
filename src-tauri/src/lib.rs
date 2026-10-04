@@ -878,4 +878,106 @@ mod tests {
             "list must skip .git folders: {got:?}"
         );
     }
+
+    fn set_modified_ms(path: &std::path::Path, ms: u64) {
+        std::fs::OpenOptions::new()
+            .write(true)
+            .open(path)
+            .expect("open file to set its mtime")
+            .set_modified(std::time::UNIX_EPOCH + Duration::from_millis(ms))
+            .expect("set mtime");
+    }
+
+    #[test]
+    fn stat_file_reports_size_and_modified_ms() {
+        let (root, _cleanup) = temp_workspace("stat");
+        let path = root.join("note.md");
+        std::fs::write(&path, "12345").expect("seed note.md");
+        set_modified_ms(&path, 1_700_000_000_123);
+        let stat = super::stat_file(&root, "note.md").expect("stat an existing file");
+        assert_eq!(stat.size, 5, "stat_file must report the size in bytes");
+        assert_eq!(
+            stat.modified_ms, 1_700_000_000_123,
+            "stat_file must report the mtime in ms since the epoch"
+        );
+        assert!(
+            super::stat_file(&root, "missing.md").is_err(),
+            "stat_file must be Err for a missing file"
+        );
+        assert!(
+            super::stat_file(&root, "../note.md").is_err(),
+            "stat_file must be Err for a path outside the workspace"
+        );
+    }
+
+    #[test]
+    fn file_exists_is_false_when_missing_and_err_on_escape() {
+        let (root, _cleanup) = temp_workspace("exists");
+        std::fs::write(root.join("note.md"), "note\n").expect("seed note.md");
+        assert!(
+            super::file_exists(&root, "note.md").expect("existing file"),
+            "file_exists must be true for an existing file"
+        );
+        assert!(
+            !super::file_exists(&root, "missing.md").expect("missing file"),
+            "file_exists must be false for a missing file"
+        );
+        assert!(
+            !super::file_exists(&root, "new/folder/missing.md").expect("missing folder"),
+            "file_exists must be false under a missing folder"
+        );
+        assert!(
+            super::file_exists(&root, "../note.md").is_err(),
+            "file_exists must be Err for a path outside the workspace"
+        );
+    }
+
+    #[test]
+    fn write_file_returns_the_new_modified_ms() {
+        let (root, _cleanup) = temp_workspace("write-mtime");
+        let modified: u64 = write_file(&root, "note.md", "hello\n").expect("save note.md");
+        let stat = super::stat_file(&root, "note.md").expect("stat note.md");
+        assert_eq!(
+            modified, stat.modified_ms,
+            "write_file must return the file's modified_ms after the write"
+        );
+    }
+
+    #[test]
+    fn write_file_if_unchanged_refuses_when_the_file_changed_on_disk() {
+        let (root, _cleanup) = temp_workspace("write-conflict");
+        let path = root.join("note.md");
+        std::fs::write(&path, "disk\n").expect("seed note.md");
+        set_modified_ms(&path, 1_700_000_000_000);
+
+        let err = super::write_file_if_unchanged(&root, "note.md", "mine\n", Some(1_600_000_000_000))
+            .expect_err("a stale expected mtime must be refused");
+        assert_eq!(err.to_string(), "conflict: file changed on disk");
+        assert_eq!(
+            std::fs::read_to_string(&path).expect("read note.md"),
+            "disk\n",
+            "a conflicting write must not touch the file"
+        );
+
+        let modified =
+            super::write_file_if_unchanged(&root, "note.md", "mine\n", Some(1_700_000_000_000))
+                .expect("a matching expected mtime must write");
+        assert_eq!(std::fs::read_to_string(&path).expect("read note.md"), "mine\n");
+        assert_eq!(
+            modified,
+            super::stat_file(&root, "note.md").expect("stat note.md").modified_ms,
+            "write_file_if_unchanged must return the new modified_ms"
+        );
+
+        super::write_file_if_unchanged(&root, "note.md", "forced\n", None)
+            .expect("no expected mtime writes unconditionally");
+        assert_eq!(std::fs::read_to_string(&path).expect("read note.md"), "forced\n");
+
+        super::write_file_if_unchanged(&root, "gone.md", "recreated\n", Some(1))
+            .expect("a missing file is not a conflict");
+        assert_eq!(
+            std::fs::read_to_string(root.join("gone.md")).expect("read gone.md"),
+            "recreated\n"
+        );
+    }
 }
