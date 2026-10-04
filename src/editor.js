@@ -207,11 +207,24 @@ let editableOn = false;
 let activeDocKey = null;
 const docStates = new WeakMap(); // key (e.g. a tab object) -> { state, scroll }
 
+// Each EditorView.theme() adds CSS rules for good, so swaps reuse one theme
+// per font setting.
+let fontTheme = null;
+let fontThemeKey = "";
+function currentFontTheme() {
+  const key = `${editorDefaults.fontSize}/${editorDefaults.lineHeight}`;
+  if (!fontTheme || key !== fontThemeKey) {
+    fontTheme = editorFontTheme();
+    fontThemeKey = key;
+  }
+  return fontTheme;
+}
+
 // Settings may have changed while a state was in the background.
 function withCurrentSettings(state) {
   return state.update({
     effects: [
-      fontCompartment.reconfigure(editorFontTheme()),
+      fontCompartment.reconfigure(currentFontTheme()),
       wrapCompartment.reconfigure(wrapExt()),
       lineNumberCompartment.reconfigure(lineNumberExt()),
       activeLineCompartment.reconfigure(activeLineExt()),
