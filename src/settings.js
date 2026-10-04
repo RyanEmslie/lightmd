@@ -270,7 +270,7 @@ export function bindSettings() {
     }
     for (const item of d.querySelectorAll?.("[data-settings-target]") || []) {
       const target = d.getElementById(`settings-${item.getAttribute("data-settings-target")}`);
-      item.hidden = !!query && !target?.hidden;
+      item.hidden = !!target?.hidden;
     }
     const noResults = d.getElementById("settings-no-results");
     if (noResults) noResults.hidden = matches !== 0;
