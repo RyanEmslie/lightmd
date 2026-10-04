@@ -410,3 +410,26 @@ test("Settings changes survive a relaunch and apply before the editor mounts", a
     await app.close();
   }
 });
+
+test("the editor font size setting changes the rendered editor text", async () => {
+  const app = await launchApp();
+  const contentFontSize = () =>
+    app.page.evaluate(
+      () => getComputedStyle(document.querySelector("#editor-view .cm-content")).fontSize,
+    );
+  try {
+    await openNote(app, { "note.md": "# Note\n" });
+    await app.page.click("#settings-open");
+    await app.page.fill("#editor-font-size", "19");
+    await app.page.locator("#editor-font-size").dispatchEvent("change");
+    await app.page.click("#settings-close");
+    assert.equal(await contentFontSize(), "19px", "the change applies right away");
+
+    await app.reload();
+    await openNote(app, { "note.md": "# Note\n" });
+    assert.equal(await contentFontSize(), "19px", "the saved size applies after a relaunch");
+    assert.deepEqual(app.errors, []);
+  } finally {
+    await app.close();
+  }
+});

@@ -1,5 +1,5 @@
 import { EditorView, keymap, lineNumbers, highlightActiveLine } from "@codemirror/view";
-import { EditorState, Compartment } from "@codemirror/state";
+import { EditorState, Compartment, Prec } from "@codemirror/state";
 import { indentUnit } from "@codemirror/language";
 import { defaultKeymap, history, historyKeymap } from "@codemirror/commands";
 import { markdown, markdownLanguage } from "@codemirror/lang-markdown";
@@ -168,7 +168,8 @@ const extensions = [
   keymap.of([...defaultKeymap, ...historyKeymap, ...searchKeymap]),
   markdown({ base: markdownLanguage }),
   theme,
-  fontCompartment.of(editorFontTheme()),
+  // Above the base theme, or its fixed 14px wins over the font setting.
+  Prec.high(fontCompartment.of(editorFontTheme())),
   wrapCompartment.of(wrapExt()),
   lineNumberCompartment.of(lineNumberExt()),
   activeLineCompartment.of(activeLineExt()),
@@ -601,7 +602,7 @@ function setEditorFont(size, lineHeight) {
   const nextLh = Number(lineHeight);
   if (Number.isFinite(nextSize) && nextSize > 0) editorDefaults.fontSize = nextSize;
   if (Number.isFinite(nextLh) && nextLh > 0) editorDefaults.lineHeight = nextLh;
-  view.dispatch({ effects: fontCompartment.reconfigure(editorFontTheme()) });
+  view.dispatch({ effects: fontCompartment.reconfigure(currentFontTheme()) });
   if (parent && parent.style) {
     parent.style.fontSize = `${editorDefaults.fontSize}px`;
     parent.style.lineHeight = String(editorDefaults.lineHeight);
