@@ -359,6 +359,13 @@ function onPointerUp(ev) {
   endDrag();
 }
 
+// Losing pointer capture is not a release: WebKit reports clientX=0 here, so
+// applying a delta would slam the left pane to its minimum. Keep the widths
+// from the last move and just end the drag.
+function onLostPointerCapture() {
+  endDrag();
+}
+
 function ensureSplitterBound(el) {
   if (!el || boundSplitters.has(el)) return;
   if (typeof el.addEventListener !== "function") return;
@@ -367,7 +374,7 @@ function ensureSplitterBound(el) {
   el.addEventListener("mousedown", onSplitterDown);
   el.addEventListener("pointerup", onPointerUp);
   el.addEventListener("mouseup", onPointerUp);
-  el.addEventListener("lostpointercapture", onPointerUp);
+  el.addEventListener("lostpointercapture", onLostPointerCapture);
 }
 
 function placeSplitters() {
@@ -474,6 +481,17 @@ function applyPane(el, open) {
   }
 }
 
+// Grid columns place the panes; DOM order only sets tab order. Moving a node
+// resets its scroll, drops focus and pointer capture, and reloads iframes, so
+// only re-append when the order really changed.
+function syncPaneOrder(d, shell) {
+  if (!shell || typeof shell.appendChild !== "function") return;
+  const want = layout.order.map((id) => d.getElementById(id)).filter(Boolean);
+  const have = Array.from(shell.children || []).filter((el) => want.includes(el));
+  if (have.length === want.length && have.every((el, i) => el === want[i])) return;
+  for (const el of want) shell.appendChild(el);
+}
+
 function applyLayoutToDom() {
   const d = doc();
   layout.order = normalizeOrder(layout.order);
@@ -503,12 +521,7 @@ function applyLayoutToDom() {
   if (shell && shell.style) {
     shell.style.gridTemplateColumns = cols.join(" ");
   }
-  if (shell && typeof shell.appendChild === "function") {
-    for (const id of layout.order) {
-      const el = d.getElementById(id);
-      if (el) shell.appendChild(el);
-    }
-  }
+  syncPaneOrder(d, shell);
   syncLayoutControls();
   placeSplitters();
 }
