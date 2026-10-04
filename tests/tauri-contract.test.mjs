@@ -9,9 +9,7 @@ import { KNOWN_COMMANDS } from "./helpers/tauri.mjs";
 // commands. A call to anything else rejects at runtime with "Command … not
 // found", which the fake backend in tests/helpers/tauri.mjs now mirrors.
 
-const PENDING_RUST_COMMANDS = new Set([
-  "workspace_file_exists", // registered by the Rust task in the same batch; remove after merge
-]);
+const PENDING_RUST_COMMANDS = new Set([]);
 
 function rustCommands() {
   const src = readFileSync(join(root, "src-tauri", "src", "lib.rs"), "utf8");

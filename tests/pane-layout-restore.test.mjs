@@ -355,7 +355,6 @@ test("restore leaves the window size alone when remember layout is off", async (
 
 test(
   "the app's capabilities let the window-size restore through",
-  { todo: "setSize is rejected: capabilities lack core:window:allow-set-size — fixed by Task 2" },
   async () => {
     const backend = await restoreWithSavedLayout(SAVED_WINDOW);
     const rejected = backend.rejections.find((r) => r.cmd === "plugin:window|set_size");
