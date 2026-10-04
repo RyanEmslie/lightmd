@@ -353,6 +353,18 @@ export function bindSettings() {
   on(d.getElementById("settings-default-folder"), "change", (event) => {
     persistSession({ defaultFolder: event.target.value });
   });
+  // The webview never navigates to the web (Rust cancels it), so About links
+  // open in the system browser.
+  on(d.getElementById("settings-about"), "click", (event) => {
+    const link = event.target?.closest?.("a[href]");
+    if (!link) return;
+    event.preventDefault();
+    const href = link.getAttribute("href") || "";
+    const openUrl = globalThis.__TAURI__?.opener?.openUrl;
+    if (/^https?:\/\//i.test(href) && typeof openUrl === "function") {
+      Promise.resolve(openUrl(href)).catch(() => {});
+    }
+  });
   on(d.getElementById("settings-remember-layout"), "change", (event) => {
     layout.remember = !!event.target.checked;
     persistLayout();
