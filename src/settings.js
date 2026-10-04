@@ -459,7 +459,11 @@ export function mountSettings() {
   bindSettings();
 }
 
-restoreSettings();
+try {
+  restoreSettings();
+} catch (err) {
+  console.error("LightMD: could not restore settings", err);
+}
 
 if (doc() && typeof doc().getElementById === "function") {
   try {
