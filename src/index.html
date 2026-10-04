@@ -1411,24 +1411,39 @@
         let currentRelative = null;
         let dirty = false;
         const tabStrip = document.getElementById("editor-tabs");
+        // Tabs: { id, root, relative, contents, dirty, modifiedMs, eol }. A file
+        // tab keeps the folder it was opened from (root), the file's modified
+        // time when it last read or wrote it, and its line ending; contents use
+        // "\n" like CodeMirror. The untitled draft has root and relative null.
         let openTabs = [];
-        let activeRelative = null;
+        // The tab shown in the editor, or null when none is.
+        let activeTab = null;
+        let nextTabId = 1;
+        // Bumped by every open/switch, so a slow read can't take over the editor
+        // after the user has moved on.
+        let navigation = 0;
+        let folderLoads = 0;
+        const pendingReads = new Map();
 
         function setDirty(value) {
-          dirty = value;
+          dirty = !!value;
           if (dirtyDot) dirtyDot.hidden = !dirty;
-          const tab = findTab(activeRelative);
-          if (tab) tab.dirty = value;
+          if (activeTab && activeTab.dirty !== dirty) {
+            activeTab.dirty = dirty;
+            renderTabs();
+          }
           if (!value && typeof window.lightmdCancelAutosave === "function") {
             window.lightmdCancelAutosave();
           }
         }
 
         window.lightmdSetDirty = setDirty;
+        // path is the explorer's folder; root is the active document's folder.
         Object.defineProperty(window, "lightmdWorkspace", {
           get() {
             return {
               path: workspacePath,
+              root: tabRoot(activeTab),
               relative: currentRelative,
               contents: buffer.value,
             };
@@ -1504,8 +1519,10 @@
 
         function markActiveFile() {
           const rows = fileList.querySelectorAll('li[data-dir="false"]');
+          const shown =
+            activeTab && sameRoot(activeTab.root, workspacePath) ? currentRelative : null;
           for (const row of rows) {
-            const on = Boolean(currentRelative) && row.dataset.path === currentRelative;
+            const on = Boolean(shown) && row.dataset.path === shown;
             row.classList.toggle("selected", on);
             if (on) row.setAttribute("aria-selected", "true");
             else row.removeAttribute("aria-selected");
@@ -1632,9 +1649,28 @@
             return !!(await tauri.dialog.ask(message));
           }
           if (typeof window.confirm === "function") {
-            return !!window.confirm(message);
+            // Tauri's dialog plugin replaces window.confirm with an async one.
+            return !!(await window.confirm(message));
           }
           return false;
+        }
+
+        // Three buttons. Resolves "yes", "no" or "cancel" (also when dismissed).
+        async function askChoice(message, labels) {
+          const tauri = window.__TAURI__;
+          if (tauri && tauri.dialog && typeof tauri.dialog.message === "function") {
+            const said = await tauri.dialog.message(message, {
+              title: "LightMD",
+              kind: "warning",
+              buttons: { yes: labels.yes, no: labels.no, cancel: labels.cancel },
+            });
+            if (said === labels.yes || said === "Yes") return "yes";
+            if (said === labels.no || said === "No") return "no";
+            return "cancel";
+          }
+          return (await askConfirm(`${message}\n\nOK: ${labels.yes}. Cancel: ${labels.cancel}.`))
+            ? "yes"
+            : "cancel";
         }
 
         async function pickSavePath() {
@@ -1679,15 +1715,10 @@
               path: root,
               relative,
             });
-            if (typeof exists === "boolean") return exists;
+            return exists !== false;
           } catch {
-            // command may be absent; fall through
-          }
-          try {
-            await tauri.core.invoke("read_workspace_file", { path: root, relative });
+            // Can't tell: ask rather than overwrite silently.
             return true;
-          } catch {
-            return false;
           }
         }
 
@@ -1706,9 +1737,76 @@
           return key == null || key === "";
         }
 
-        function findTab(key) {
-          const k = tabKey(key);
-          return openTabs.find((tab) => tabKey(tab.relative) === k);
+        function sameRoot(a, b) {
+          if (a == null || b == null) return false;
+          const norm = (p) => normalizeSlashes(p).replace(/\/+$/, "");
+          return norm(a) === norm(b);
+        }
+
+        // A file tab is its folder plus path; relative null finds the draft.
+        function findTab(root, relative) {
+          if (isUntitledKey(relative)) return openTabs.find((tab) => tab.relative == null);
+          return openTabs.find((tab) => tab.relative === relative && sameRoot(tab.root, root));
+        }
+
+        function tabById(id) {
+          return openTabs.find((tab) => String(tab.id) === String(id)) || null;
+        }
+
+        function makeTab(root, relative, contents) {
+          const untitled = isUntitledKey(relative);
+          return {
+            id: nextTabId++,
+            root: untitled ? null : root,
+            relative: untitled ? null : relative,
+            contents: contents == null ? "" : String(contents),
+            dirty: false,
+            modifiedMs: null,
+            eol: "\n",
+            saving: null, // the last save in this tab's queue
+            putOff: false, // the user chose to keep editing over a conflict
+          };
+        }
+
+        // A file's dominant line ending.
+        function lineEndingOf(text) {
+          const s = String(text ?? "");
+          const crlf = (s.match(/\r\n/g) || []).length;
+          const cr = (s.match(/\r(?!\n)/g) || []).length;
+          const lf = (s.match(/\n/g) || []).length - crlf;
+          if (crlf > lf && crlf >= cr) return "\r\n";
+          if (cr > lf && cr > crlf) return "\r";
+          return "\n";
+        }
+
+        // Text with every line break as `eol` ("\n" when omitted).
+        function withLineEnding(text, eol = "\n") {
+          const lf = String(text ?? "").replace(/\r\n?/g, "\n");
+          return eol === "\n" ? lf : lf.replace(/\n/g, eol);
+        }
+
+        // Loads what readDocument() returned into a tab.
+        function setTabDocument(tab, doc) {
+          tab.contents = withLineEnding(doc.contents);
+          tab.eol = lineEndingOf(doc.contents);
+          tab.modifiedMs = doc.modifiedMs;
+        }
+
+        // The folder a tab's document lives in (the draft uses the explorer's).
+        function tabRoot(tab) {
+          return tab && tab.root != null ? tab.root : workspacePath;
+        }
+
+        function emit(type, detail) {
+          if (typeof window.dispatchEvent !== "function" || typeof CustomEvent !== "function") {
+            return;
+          }
+          window.dispatchEvent(new CustomEvent(type, { detail }));
+        }
+
+        function setWorkspaceRoot(root) {
+          workspacePath = root;
+          emit("lightmd:workspace-changed", { root });
         }
 
         function fileNameOf(relative) {
@@ -1781,17 +1879,23 @@
           }
         }
 
-        function loadIntoEditor(body) {
+        // Shows `tab`'s document (its own editor state and undo history), or a
+        // blank document with no tab.
+        function loadIntoEditor(body, tab = null) {
           if (typeof window.lightmdCancelAutosave === "function") {
             window.lightmdCancelAutosave();
           }
           const text = body == null ? "" : String(body);
           if (buffer) buffer.value = text;
-          if (window.lightmdEditor && typeof window.lightmdEditor.setDoc === "function") {
-            if (typeof window.lightmdRefreshLayout === "function") {
-              window.lightmdRefreshLayout();
-            }
-            window.lightmdEditor.setDoc(text);
+          const editor = window.lightmdEditor;
+          if (!editor) return;
+          if (typeof window.lightmdRefreshLayout === "function") {
+            window.lightmdRefreshLayout();
+          }
+          if (typeof editor.showDocument === "function") {
+            editor.showDocument(tab, text);
+          } else if (typeof editor.setDoc === "function") {
+            editor.setDoc(text);
           }
         }
 
@@ -1801,10 +1905,187 @@
         }
 
         function stashActive() {
-          const tab = findTab(activeRelative);
-          if (!tab) return;
-          tab.contents = buffer ? buffer.value : tab.contents;
-          tab.dirty = dirty;
+          if (!activeTab) return;
+          activeTab.contents = buffer ? buffer.value : activeTab.contents;
+          activeTab.dirty = dirty;
+        }
+
+        function autosaveOn() {
+          const config = window.lightmdAutosave;
+          return !config || config.enabled !== false;
+        }
+
+        function showSaveError() {
+          if (typeof window.lightmdShowSaveError === "function") window.lightmdShowSaveError();
+        }
+
+        function clearSaveError() {
+          if (typeof window.lightmdClearSaveError === "function") window.lightmdClearSaveError();
+        }
+
+        // A tab's text: the editor's for the active tab.
+        function tabText(tab) {
+          return tab === activeTab && buffer ? buffer.value : tab.contents;
+        }
+
+        function setTabDirty(tab, value) {
+          if (tab === activeTab) {
+            setDirty(value);
+            return;
+          }
+          if (tab.dirty === !!value) return;
+          tab.dirty = !!value;
+          renderTabs();
+        }
+
+        // Writes `contents` to the tab's file, unless the file changed on disk
+        // since the tab last saw it (rejects "conflict: …"); `force` writes
+        // anyway. The tab is clean afterwards only if its text is still what
+        // was written.
+        async function writeTab(tab, contents, force = false) {
+          const args = {
+            path: tab.root,
+            relative: tab.relative,
+            contents: withLineEnding(contents, tab.eol),
+          };
+          if (!force && tab.modifiedMs != null) args.expectedModifiedMs = tab.modifiedMs;
+          const modified = await window.__TAURI__.core.invoke("write_workspace_file", args);
+          tab.modifiedMs = typeof modified === "number" ? modified : null;
+          tab.putOff = false;
+          if (tabText(tab) === contents) setTabDirty(tab, false);
+        }
+
+        function isConflict(err) {
+          return /^conflict:/.test(String(err && err.message ? err.message : err));
+        }
+
+        // Saves a file tab's text. Saves of a tab queue up, so each write
+        // carries the modified time the one before it returned. Resolves false,
+        // with the error shown, when it can't, or when the user keeps editing
+        // over a conflict. An `auto` save (autosave, a flush) is skipped if the
+        // tab is clean by its turn or the user put off its conflict.
+        function saveTab(tab, auto = false) {
+          if (!tab || tab.relative == null || tab.root == null) return Promise.resolve(false);
+          const run = (tab.saving || Promise.resolve()).then(async () => {
+            if (auto && (!tab.dirty || tab.putOff)) return false;
+            try {
+              await writeTab(tab, tabText(tab));
+            } catch (err) {
+              if (isConflict(err)) return resolveConflict(tab);
+              showSaveError();
+              return false;
+            }
+            clearSaveError();
+            return true;
+          });
+          tab.saving = run.catch(() => false);
+          return run;
+        }
+
+        // The file changed on disk since the tab read or saved it: overwrite it,
+        // reload it (dropping the edit), or keep editing and decide on a later
+        // Save.
+        async function resolveConflict(tab) {
+          const choice = await askChoice(
+            `${fileNameOf(tab.relative)} changed on disk since you opened it. Overwrite it with your version, or reload the version on disk?`,
+            { yes: "Overwrite", no: "Reload", cancel: "Keep Editing" },
+          );
+          try {
+            if (choice === "yes") await writeTab(tab, tabText(tab), true);
+            else if (choice === "no") await reloadTab(tab, true);
+          } catch {
+            showSaveError();
+            return false;
+          }
+          if (choice === "cancel") {
+            tab.putOff = true;
+            return false;
+          }
+          clearSaveError();
+          return true;
+        }
+
+        // Reads the tab's file again. Unless `discard`, an edit made meanwhile wins.
+        async function reloadTab(tab, discard = false) {
+          const doc = await readDocument(tab.root, tab.relative);
+          if (!openTabs.includes(tab) || (!discard && tab.dirty)) return;
+          setTabDocument(tab, doc);
+          tab.putOff = false;
+          if (tab === activeTab) {
+            loadIntoEditor(tab.contents, tab);
+            setDirty(false);
+            emit("lightmd:document-loaded", { root: tabRoot(tab), relative: tab.relative });
+          } else {
+            setTabDirty(tab, false);
+          }
+        }
+
+        // A clean tab shown again follows its file if another program changed it.
+        async function refreshIfChanged(tab) {
+          if (!tab || tab.dirty || tab.relative == null || tab.modifiedMs == null) return;
+          try {
+            const stat = await window.__TAURI__.core.invoke("stat_workspace_file", {
+              path: tab.root,
+              relative: tab.relative,
+            });
+            if (stat && stat.modified_ms !== tab.modifiedMs) await reloadTab(tab);
+          } catch {
+            // gone or unreadable: keep what is shown
+          }
+        }
+
+        // Before another tab (or nothing) takes the editor: keep its text, and
+        // start saving the edit autosave was waiting to save. Returns that save.
+        function leaveActive() {
+          const tab = activeTab;
+          stashActive();
+          if (typeof window.lightmdCancelAutosave === "function") {
+            window.lightmdCancelAutosave();
+          }
+          if (!tab || !tab.dirty || !autosaveOn() || tab.putOff) return null;
+          return saveTab(tab, true).catch(() => false);
+        }
+
+        // Before `tabs` go away: save the dirty ones autosave would save and ask
+        // before discarding the rest. Resolves false to keep them.
+        async function settleDirtyTabs(tabs) {
+          stashActive();
+          if (autosaveOn()) {
+            for (const tab of tabs) {
+              if (tab.dirty) await saveTab(tab);
+            }
+          }
+          stashActive();
+          const unsaved = tabs.filter((tab) => tab.dirty);
+          if (!unsaved.length) return true;
+          const names = unsaved.map((tab) => fileNameOf(tabKey(tab.relative))).join(", ");
+          return askConfirm(`Discard unsaved changes to ${names}?`);
+        }
+
+        // Puts `tab` in the editor, or empties it for null. The caller has
+        // already stashed (or closed) the outgoing tab.
+        function showTab(tab) {
+          activeTab = tab || null;
+          currentRelative = activeTab ? activeTab.relative : null;
+          loadIntoEditor(activeTab ? activeTab.contents : "", activeTab);
+          setDirty(activeTab ? !!activeTab.dirty : false);
+          showActivePath();
+          markActiveFile();
+          renderTabs();
+          setEditorSession(!!activeTab);
+          if (!activeTab) {
+            clearPreview();
+            return;
+          }
+          emit("lightmd:document-loaded", { root: tabRoot(activeTab), relative: currentRelative });
+        }
+
+        // The session remembers files of the explorer's folder only.
+        function persistActiveTab() {
+          const tab = activeTab;
+          persistOpenFile(
+            tab && tab.relative != null && sameRoot(tab.root, workspacePath) ? tab.relative : null,
+          );
         }
 
         function renderTabs() {
@@ -1821,10 +2102,14 @@
           const el = document.createElement("button");
           el.type = "button";
           el.setAttribute("role", "tab");
-          el.setAttribute("aria-selected", tabKey(activeRelative) === key ? "true" : "false");
+          el.setAttribute("aria-selected", tab === activeTab ? "true" : "false");
+          el.dataset.tabId = String(tab.id);
           el.dataset.relative = key;
           el.dataset.path = key;
-          el.title = key || name;
+          el.title =
+            tab.relative != null && !sameRoot(tab.root, workspacePath)
+              ? `${String(tab.root).replace(/[/\\]+$/, "")}/${key}`
+              : key || name;
           el.appendChild(fileTypeIcon(key));
           const label = document.createElement("span");
           label.className = "tab-name";
@@ -1836,125 +2121,123 @@
           close.setAttribute("aria-label", "Close");
           close.title = "Close";
           close.textContent = "×";
+          if (tab.dirty) {
+            el.dataset.dirty = "true";
+            const mark = document.createElement("span");
+            mark.className = "tab-dirty";
+            mark.setAttribute("aria-label", "Unsaved changes");
+            mark.title = "Unsaved changes";
+            mark.textContent = "●";
+            el.appendChild(mark);
+          }
           el.appendChild(close);
           return el;
         }
 
-        function activateTab(relative) {
-          const tab = findTab(relative);
-          if (!tab) return;
-          const key = tabKey(tab.relative);
-          if (tabKey(activeRelative) === key) {
-            currentRelative = isUntitledKey(key) ? null : tab.relative;
+        function activateTab(tab) {
+          if (!tab || !openTabs.includes(tab)) return;
+          navigation += 1;
+          if (tab === activeTab) {
             showActivePath();
             markActiveFile();
             renderTabs();
-            return;
+            return refreshIfChanged(tab);
           }
-          stashActive();
-          activeRelative = key;
-          currentRelative = isUntitledKey(key) ? null : tab.relative;
-          loadIntoEditor(tab.contents ?? "");
-          setDirty(!!tab.dirty);
-          showActivePath();
-          markActiveFile();
-          renderTabs();
-          persistOpenFile(currentRelative);
-          setEditorSession(true);
+          const flushed = leaveActive();
+          showTab(tab);
+          persistActiveTab();
+          return Promise.all([flushed, refreshIfChanged(tab)]);
         }
 
-        function closeTab(relative) {
-          const key = tabKey(relative);
-          const i = openTabs.findIndex((tab) => tabKey(tab.relative) === key);
-          if (i < 0) return;
-          const wasActive = tabKey(activeRelative) === key;
+        async function closeTab(tab) {
+          if (!tab || !openTabs.includes(tab)) return false;
+          if (tab === activeTab) stashActive();
+          if (tab.dirty && !(await settleDirtyTabs([tab]))) return false;
+          const i = openTabs.indexOf(tab);
+          if (i < 0) return false;
           openTabs.splice(i, 1);
-          if (!wasActive) {
+          if (tab !== activeTab) {
             renderTabs();
-            return;
+            return true;
           }
-          if (openTabs.length === 0) {
-            activeRelative = null;
-            currentRelative = null;
-            loadIntoEditor("");
-            setDirty(false);
-            showActivePath();
-            markActiveFile();
-            renderTabs();
-            persistOpenFile(null);
-            clearPreview();
-            setEditorSession(false);
-            return;
-          }
-          const next = openTabs[Math.min(i, openTabs.length - 1)];
-          activeRelative = null;
-          activateTab(next.relative);
+          // The closed tab is gone: nothing to stash, and the next tab always loads.
+          navigation += 1;
+          activeTab = null;
+          showTab(openTabs.length ? openTabs[Math.min(i, openTabs.length - 1)] : null);
+          persistActiveTab();
+          return true;
         }
 
-        function bindActiveTab(relative, contents) {
-          const prev = findTab(activeRelative);
-          const key = tabKey(relative);
-          const dup = openTabs.find((tab) => tab !== prev && tabKey(tab.relative) === key);
-          if (dup) {
-            if (prev) openTabs = openTabs.filter((tab) => tab !== prev);
-            dup.contents = contents;
-            dup.dirty = false;
-            activeRelative = dup.relative;
-          } else if (prev) {
-            prev.relative = key;
-            prev.contents = contents;
-            prev.dirty = false;
-            activeRelative = key;
-          } else {
-            openTabs.push({ relative: key, dirty: false, contents });
-            activeRelative = key;
-          }
-          renderTabs();
-        }
-
+        // Resolves false when the user keeps the open tabs instead.
         async function applyFolder(path) {
+          if (openTabs.some((tab) => tab.dirty) && !(await settleDirtyTabs(openTabs.slice()))) {
+            return false;
+          }
           if (typeof window.lightmdCancelAutosave === "function") {
             window.lightmdCancelAutosave();
           }
+          navigation += 1;
+          folderLoads += 1;
           openTabs = [];
-          activeRelative = null;
-          currentRelative = null;
-          if (statusPath) statusPath.textContent = "";
-          if (buffer) buffer.value = "";
-          if (window.lightmdEditor && typeof window.lightmdEditor.setDoc === "function") {
-            window.lightmdEditor.setDoc("");
-          }
-          setDirty(false);
-          setEditorSession(false);
-          workspacePath = path;
+          activeTab = null;
+          showTab(null);
+          setWorkspaceRoot(path);
           persistOpenFolder(path);
           renderTabs();
           await loadWorkspace(path);
+          return true;
+        }
+
+        // { contents, modifiedMs }; one read per file at a time, however often
+        // it is clicked. The time is taken first, so a change racing the read
+        // shows up as a conflict rather than being missed.
+        function readDocument(root, relative) {
+          const key = `${root}\n${relative}`;
+          let pending = pendingReads.get(key);
+          if (!pending) {
+            const invoke = window.__TAURI__.core.invoke;
+            pending = (async () => {
+              let modifiedMs = null;
+              try {
+                const stat = await invoke("stat_workspace_file", { path: root, relative });
+                if (stat && typeof stat.modified_ms === "number") modifiedMs = stat.modified_ms;
+              } catch {
+                // the read below reports a missing file
+              }
+              const contents = await invoke("read_workspace_file", { path: root, relative });
+              return { contents, modifiedMs };
+            })().finally(() => pendingReads.delete(key));
+            pendingReads.set(key, pending);
+          }
+          return pending;
         }
 
         async function applyFile(relative) {
           if (!workspacePath) return;
-          if (findTab(relative)) {
-            activateTab(relative);
+          const root = workspacePath;
+          const request = ++navigation;
+          const folderLoad = folderLoads;
+          const open = findTab(root, relative);
+          if (open) {
+            await activateTab(open);
             return;
           }
-          if (typeof window.lightmdCancelAutosave === "function") {
-            window.lightmdCancelAutosave();
+          const doc = await readDocument(root, relative);
+          if (folderLoad !== folderLoads) return; // another folder was opened meanwhile
+          let tab = findTab(root, relative);
+          if (!tab) {
+            tab = makeTab(root, relative, "");
+            setTabDocument(tab, doc);
+            openTabs.push(tab);
           }
-          const body = await window.__TAURI__.core.invoke("read_workspace_file", {
-            path: workspacePath,
-            relative,
-          });
-          stashActive();
-          openTabs.push({ relative, dirty: false, contents: body });
-          activeRelative = relative;
-          currentRelative = relative;
-          if (statusPath) statusPath.textContent = currentRelative;
-          markActiveFile();
-          loadIntoEditor(body);
-          setDirty(false);
-          renderTabs();
-          setEditorSession(true);
+          // A later click won while this file was loading: open it behind.
+          if (request !== navigation || tab === activeTab) {
+            renderTabs();
+            return;
+          }
+          const flushed = leaveActive();
+          showTab(tab);
+          await flushed;
         }
 
         function askName(title, initial = "") {
@@ -2041,41 +2324,41 @@
         }
 
         async function newNote() {
-          // Bound dirty: start a blank session (discards). Unbound dirty: confirm first.
-          if (dirty && !currentRelative) {
-            const ok = await askConfirm("Discard unsaved changes?");
+          // A new note replaces the draft tab: confirm before blanking its text.
+          const draft = findTab(null, null);
+          if (draft && draft === activeTab) stashActive();
+          if (draft && draft.dirty) {
+            const ok = await askConfirm("Discard unsaved changes to untitled?");
             if (!ok) return;
           }
-          stashActive();
-          let tab = findTab("");
-          if (!tab) {
-            tab = { relative: "", dirty: false, contents: "" };
-            openTabs.push(tab);
-          } else {
-            tab.contents = "";
-            tab.dirty = false;
-          }
-          if (typeof window.lightmdCancelAutosave === "function") {
-            window.lightmdCancelAutosave();
-          }
-          activeRelative = "";
-          currentRelative = null;
-          if (statusPath) statusPath.textContent = "";
-          loadIntoEditor("");
+          navigation += 1;
+          const flushed = leaveActive();
+          const tab = makeTab(null, null, "");
+          if (draft && openTabs.includes(draft)) openTabs[openTabs.indexOf(draft)] = tab;
+          else openTabs.push(tab);
+          showTab(tab);
           clearPreview();
-          setDirty(false);
-          markActiveFile();
-          renderTabs();
           persistOpenFile(null);
-          setEditorSession(true);
+          await flushed;
         }
 
+        // Errors are shown in the status strip; resolves whether it saved.
         async function saveAs(spec) {
+          try {
+            return await saveAsTo(spec);
+          } catch {
+            showSaveError();
+            return false;
+          }
+        }
+
+        async function saveAsTo(spec) {
           const opts = saveAsSpec(spec) || {};
           const tauri = window.__TAURI__;
           if (!tauri || !tauri.core || typeof tauri.core.invoke !== "function") {
             return false;
           }
+          const source = activeTab;
 
           let root = opts.path ?? opts.root ?? workspacePath;
           let relative = opts.relative ?? opts.filename;
@@ -2102,27 +2385,65 @@
             throw new Error("path is outside workspace root");
           }
 
-          const contents = opts.contents != null ? String(opts.contents) : buffer.value;
+          let contents = buffer.value;
+          if (opts.contents != null) contents = String(opts.contents);
+          else if (source && source !== activeTab) contents = source.contents;
           if (await workspaceHasFile(root, relative)) {
             const ok = await askConfirm(`Overwrite ${relative}?`);
             if (!ok) return false;
           }
 
-          await tauri.core.invoke("write_workspace_file", {
+          const eol = source ? source.eol : "\n";
+          const modified = await tauri.core.invoke("write_workspace_file", {
             path: root,
             relative,
-            contents,
+            contents: withLineEnding(contents, eol),
           });
 
-          if (root && workspacePath !== root) {
-            workspacePath = root;
+          // The saved tab now is that file. One tab per file: a tab already on
+          // it gives way, unless that one is on screen.
+          let tab = source && openTabs.includes(source) ? source : null;
+          const existing = findTab(root, relative);
+          if (existing && existing !== tab) {
+            if (tab && existing !== activeTab) {
+              openTabs.splice(openTabs.indexOf(existing), 1);
+            } else {
+              if (tab) openTabs.splice(openTabs.indexOf(tab), 1);
+              tab = existing;
+            }
+          }
+          if (!tab) {
+            tab = makeTab(root, relative, contents);
+            openTabs.push(tab);
+          }
+          tab.root = root;
+          tab.relative = relative;
+          tab.modifiedMs = typeof modified === "number" ? modified : null;
+          tab.eol = eol;
+          tab.putOff = false;
+          if (tab !== source) tab.contents = contents;
+
+          // The explorer follows the saved file; other tabs keep their folders.
+          if (!sameRoot(root, workspacePath)) {
+            setWorkspaceRoot(root);
             persistOpenFolder(root);
           }
-          currentRelative = relative;
-          if (statusPath) statusPath.textContent = currentRelative;
-          setDirty(false);
-          bindActiveTab(relative, contents);
-          persistOpenFile(currentRelative);
+          if (tab === activeTab) {
+            if (tab !== source) loadIntoEditor(contents, tab);
+            currentRelative = relative;
+            showActivePath();
+          } else if (!activeTab) {
+            showTab(tab);
+          }
+          // An edit typed during the write is still unsaved: autosave it next.
+          const unsaved = tabText(tab) !== contents;
+          setTabDirty(tab, unsaved);
+          if (unsaved && tab === activeTab && typeof window.lightmdScheduleAutoSave === "function") {
+            window.lightmdScheduleAutoSave();
+          }
+          clearSaveError();
+          renderTabs();
+          persistActiveTab();
           if (workspacePath) {
             try {
               await loadWorkspace(workspacePath);
@@ -2135,20 +2456,28 @@
           return true;
         }
 
+        // A new note has no file yet, so Save asks where to save it.
         async function save() {
-          if (!workspacePath || !currentRelative) return;
+          const tab = activeTab;
+          if (!tab) return false;
+          if (tab.relative == null || tab.root == null) return saveAs();
           const tauri = window.__TAURI__;
           if (!tauri || !tauri.core || typeof tauri.core.invoke !== "function") {
-            return;
+            return false;
           }
-          await tauri.core.invoke("write_workspace_file", {
-            path: workspacePath,
-            relative: currentRelative,
-            contents: buffer.value,
-          });
-          setDirty(false);
-          const tab = findTab(currentRelative);
-          if (tab) tab.contents = buffer.value;
+          return saveTab(tab);
+        }
+
+        // Open file tabs (not the draft) with their current text.
+        function openBuffers() {
+          return openTabs
+            .filter((tab) => tab.relative != null)
+            .map((tab) => ({
+              root: tab.root,
+              relative: tab.relative,
+              contents: tab === activeTab && buffer ? buffer.value : tab.contents,
+              dirty: tab === activeTab ? dirty : !!tab.dirty,
+            }));
         }
 
         window.lightmdOpenFolder = applyFolder;
@@ -2157,6 +2486,9 @@
         window.lightmdNewFolder = newFolder;
         window.lightmdSave = save;
         window.lightmdSaveAs = saveAs;
+        window.lightmdGetOpenBuffers = openBuffers;
+        // autosave.js calls this when its delay is up.
+        window.lightmdAutosaveWrite = () => saveTab(activeTab, true);
         window.newNote = newNote;
         window.saveAs = saveAs;
 
@@ -2164,9 +2496,30 @@
           const selected = await pickFolder();
           const path = folderPath(selected);
           if (!path) return;
-          await applyFolder(path);
+          if (!(await applyFolder(path))) return;
           persistOpenFolder(path);
         });
+
+        // Closing the window saves what autosave would save and asks before
+        // discarding the rest; Tauri destroys the window unless we prevent it.
+        const windowApi = window.__TAURI__ && window.__TAURI__.window;
+        const currentWindow =
+          windowApi && typeof windowApi.getCurrentWindow === "function"
+            ? windowApi.getCurrentWindow()
+            : null;
+        if (currentWindow && typeof currentWindow.onCloseRequested === "function") {
+          Promise.resolve(
+            currentWindow.onCloseRequested(async (event) => {
+              let keep = false;
+              try {
+                keep = !(await settleDirtyTabs(openTabs.slice()));
+              } catch {
+                keep = false;
+              }
+              if (keep) event.preventDefault();
+            }),
+          ).catch(() => {});
+        }
 
         if (newNoteButton) {
           newNoteButton.addEventListener("click", () => newNote());
@@ -2183,17 +2536,17 @@
             if (!tab || (typeof tabStrip.contains === "function" && !tabStrip.contains(tab))) {
               return;
             }
-            const rel =
-              tab.dataset && tab.dataset.relative != null
-                ? tab.dataset.relative
-                : tab.getAttribute("data-relative") || "";
+            const clicked = tabById(
+              tab.dataset && tab.dataset.tabId != null
+                ? tab.dataset.tabId
+                : tab.getAttribute("data-tab-id"),
+            );
             if (close) {
               if (typeof event.preventDefault === "function") event.preventDefault();
               if (typeof event.stopPropagation === "function") event.stopPropagation();
-              closeTab(rel);
-              return;
+              return closeTab(clicked);
             }
-            activateTab(rel);
+            return activateTab(clicked);
           });
         }
 
@@ -2210,7 +2563,7 @@
           if (!workspacePath) return;
           const relative = item.dataset.path;
           await applyFile(relative);
-          persistOpenFile(relative);
+          persistActiveTab();
         });
 
         buffer.addEventListener("input", () => {

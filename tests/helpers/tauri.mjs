@@ -23,6 +23,7 @@ export const KNOWN_COMMANDS = [
   "list_workspace",
   "read_workspace_file",
   "write_workspace_file",
+  "stat_workspace_file",
   "read_workspace_image",
   "create_workspace_folder",
   "workspace_file_exists",
@@ -31,6 +32,9 @@ export const KNOWN_COMMANDS = [
   "plugin:dialog|message", // dialog.ask() and dialog.confirm() use it
   "plugin:opener|open_url",
   "plugin:window|set_size",
+  "plugin:window|destroy", // onCloseRequested() destroys the window unless prevented
+  "plugin:event|listen", // window.listen() / onCloseRequested()
+  "plugin:event|unlisten",
 ];
 
 export const OUTSIDE = "path is outside workspace root";
@@ -39,12 +43,20 @@ const ENOTDIR = "Not a directory (os error 20)";
 const EISDIR = "Is a directory (os error 21)";
 const EEXIST = "File exists (os error 17)";
 const EUTF8 = "stream did not contain valid UTF-8";
+const ENOTFILE = "path is not a file";
+const CONFLICT = "conflict: file changed on disk";
 
 // Argument types per command, as Tauri deserializes them ("?" = Option<_>).
 const COMMAND_ARGS = {
   list_workspace: { path: "string", sort: "string?" },
   read_workspace_file: { path: "string", relative: "string" },
-  write_workspace_file: { path: "string", relative: "string", contents: "string" },
+  write_workspace_file: {
+    path: "string",
+    relative: "string",
+    contents: "string",
+    expectedModifiedMs: "u64?",
+  },
+  stat_workspace_file: { path: "string", relative: "string" },
   read_workspace_image: { path: "string", relative: "string" },
   create_workspace_folder: { path: "string", relative: "string" },
   workspace_file_exists: { path: "string", relative: "string" },
@@ -57,6 +69,7 @@ const PLUGIN_DEFAULTS = {
   dialog: ["open", "save", "message"],
   opener: ["open_url", "reveal_item_in_dir"],
   window: ["inner_size", "outer_size", "scale_factor", "title", "theme", "is_visible"],
+  event: ["listen", "unlisten", "emit", "emit_to"],
 };
 const CORE_PLUGINS = new Set(["window", "webview", "app", "event", "path", "menu", "tray"]);
 
@@ -130,6 +143,13 @@ function checkArgs(cmd, args) {
       if (optional) continue;
       throw `invalid args \`${key}\` for command \`${name}\`: command ${name} missing required key ${key}`;
     }
+    const base = optional ? type.slice(0, -1) : type;
+    if (base === "u64") {
+      if (!Number.isInteger(value) || value < 0) {
+        throw `invalid args \`${key}\` for command \`${name}\`: invalid type: ${describeJson(value)}, expected u64`;
+      }
+      continue;
+    }
     if (typeof value !== "string") {
       throw `invalid args \`${key}\` for command \`${name}\`: invalid type: ${describeJson(value)}, expected a string`;
     }
@@ -194,8 +214,12 @@ function utf8(bytes) {
  *                 string to reject.
  *
  * backend: { invoke, invokes, rejections, writes, attemptedWrites, dialogs,
- *   confirms, opened, windowCalls, dialog, files, folders, root,
- *   read, write, mkdir, isFile, isDir, snapshot }
+ *   confirms, opened, windowCalls, listeners, dialog, files, folders, root,
+ *   read, write, mkdir, isFile, isDir, mtime, snapshot }
+ *
+ * Every write (the app's, or a test's files.set()/write() standing in for
+ * another program) bumps the file's mtime, so expectedModifiedMs conflicts
+ * behave like Rust's write_file_if_unchanged().
  */
 export function createInvoke({
   root = "/tmp/lightmd-ws",
@@ -207,8 +231,11 @@ export function createInvoke({
   onInvoke = null,
 } = {}) {
   const rootAbs = normalizeAbs(root);
-  const entries = new Map(); // abs -> { type: "file", data, mtime } | { type: "dir", mtime }
+  // abs -> { type: "file", data, mtime } | { type: "dir", mtime }. mtime is a
+  // counter that every write bumps; stat_workspace_file reports it as modified_ms.
+  const entries = new Map();
   let clock = 0;
+  let listenerIds = 0;
 
   function entry(abs) {
     if (abs === "/") return { type: "dir", mtime: 0 };
@@ -316,6 +343,7 @@ export function createInvoke({
     confirms: [],
     opened: [],
     windowCalls: [],
+    listeners: [], // { id, event, target, handler } from plugin:event|listen
     dialog: {
       open: dialog.open !== undefined ? dialog.open : rootAbs,
       save: dialog.save !== undefined ? dialog.save : null,
@@ -368,6 +396,8 @@ export function createInvoke({
     read_workspace_file({ path, relative }) {
       return readText(confine(path, relative).abs);
     },
+    // Returns the new modified_ms. With expectedModifiedMs, an existing file
+    // whose mtime differs is left alone and the write rejects "conflict: …".
     write_workspace_file(args) {
       const record = {
         cmd: "write_workspace_file",
@@ -375,11 +405,26 @@ export function createInvoke({
         relative: args.relative,
         contents: args.contents,
       };
+      if (args.expectedModifiedMs != null) record.expectedModifiedMs = args.expectedModifiedMs;
       backend.attemptedWrites.push(record);
       const { abs } = confine(args.path, args.relative);
+      if (args.expectedModifiedMs != null) {
+        const found = lookup(abs);
+        if (found.entry && found.entry.mtime !== args.expectedModifiedMs) throw CONFLICT;
+        if (found.error && found.error !== ENOENT) throw found.error;
+      }
       putFile(abs, args.contents);
       backend.writes.push({ ...record, abs });
-      return null;
+      return entries.get(abs).mtime;
+    },
+    stat_workspace_file({ path, relative }) {
+      const found = lookup(confine(path, relative).abs);
+      if (found.error) throw found.error;
+      if (found.entry.type !== "file") throw ENOTFILE;
+      const data = found.entry.data;
+      const size =
+        typeof data === "string" ? new TextEncoder().encode(data).length : data.bytes.length;
+      return { modified_ms: found.entry.mtime, size };
     },
     create_workspace_folder({ path, relative }) {
       const { abs } = confine(path, relative);
@@ -434,6 +479,19 @@ export function createInvoke({
     },
     "plugin:window|set_size"(args) {
       backend.windowCalls.push({ cmd: "set_size", args });
+      return null;
+    },
+    "plugin:window|destroy"(args) {
+      backend.windowCalls.push({ cmd: "destroy", args });
+      return null;
+    },
+    "plugin:event|listen"({ event, target, handler }) {
+      const id = ++listenerIds;
+      backend.listeners.push({ id, event, target, handler });
+      return id;
+    },
+    "plugin:event|unlisten"({ eventId }) {
+      backend.listeners = backend.listeners.filter((l) => l.id !== eventId);
       return null;
     },
   };
@@ -535,6 +593,9 @@ export function createInvoke({
     isDir(base, rel = "") {
       return entry(joinAbs(normalizeAbs(base), normalizeRel(rel)))?.type === "dir";
     },
+    mtime(base, rel = "") {
+      return entry(joinAbs(normalizeAbs(base), normalizeRel(rel)))?.mtime;
+    },
     snapshot() {
       return Object.fromEntries(filesUnder("/").map(([k, v]) => [`/${k}`, v]));
     },
@@ -544,10 +605,27 @@ export function createInvoke({
 // Builds window.__TAURI__ and window.__TAURI_INTERNALS__ the way Tauri's global
 // API does (app.withGlobalTauri): core.invoke plus the dialog, opener and
 // window plugin APIs, all of which go through ipc(cmd, args).
+// Event listeners register a callback id with plugin:event|listen, like Tauri;
+// __TAURI_INTERNALS__.runCallback(id, event) delivers an event to one and
+// returns what the listener returns, so a test can await it.
 // It must stay self-contained (no outer references): the e2e harness puts its
 // source text into the page.
 export function buildTauriGlobals(ipc, { label = "main" } = {}) {
   const invoke = (cmd, args = {}, options) => ipc(cmd, args, options);
+  const callbacks = new Map();
+  let nextCallback = 1;
+  function transformCallback(callback, once = false) {
+    const id = nextCallback++;
+    callbacks.set(id, (data) => {
+      if (once) callbacks.delete(id);
+      return callback && callback(data);
+    });
+    return id;
+  }
+  function runCallback(id, data) {
+    const callback = callbacks.get(id);
+    return callback ? callback(data) : undefined;
+  }
   class LogicalSize {
     constructor(width, height) {
       this.type = "Logical";
@@ -577,9 +655,41 @@ export function buildTauriGlobals(ipc, { label = "main" } = {}) {
     }
   }
   const sizeValue = (size) => ({ [size.type]: { width: size.width, height: size.height } });
+  // Tauri's CloseRequestedEvent.
+  class CloseRequestedEvent {
+    constructor(event) {
+      this.event = event.event;
+      this.id = event.id;
+      this._preventDefault = false;
+    }
+    preventDefault() {
+      this._preventDefault = true;
+    }
+    isPreventDefault() {
+      return this._preventDefault;
+    }
+  }
   const currentWindow = {
     label,
     setSize: (size) => invoke("plugin:window|set_size", { label, value: sizeValue(size) }),
+    destroy: () => invoke("plugin:window|destroy", { label }),
+    async listen(event, handler) {
+      const eventId = await invoke("plugin:event|listen", {
+        event,
+        target: { kind: "Window", label },
+        handler: transformCallback(handler),
+      });
+      return () => invoke("plugin:event|unlisten", { event, eventId });
+    },
+    // Like Tauri: while a listener exists the close waits for it, then the
+    // window is destroyed unless the listener called event.preventDefault().
+    onCloseRequested(handler) {
+      return currentWindow.listen("tauri://close-requested", async (event) => {
+        const evt = new CloseRequestedEvent(event);
+        await handler(evt);
+        if (!evt.isPreventDefault()) await currentWindow.destroy();
+      });
+    },
   };
   function buttonsArg(buttons) {
     if (buttons === undefined || typeof buttons === "string") return buttons;
@@ -634,6 +744,8 @@ export function buildTauriGlobals(ipc, { label = "main" } = {}) {
   return {
     __TAURI_INTERNALS__: {
       invoke,
+      transformCallback,
+      runCallback,
       convertFileSrc: core.convertFileSrc,
       metadata: { currentWindow: { label }, currentWebview: { windowLabel: label, label } },
     },

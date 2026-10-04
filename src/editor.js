@@ -5,7 +5,13 @@ import { defaultKeymap, history, historyKeymap } from "@codemirror/commands";
 import { markdown, markdownLanguage } from "@codemirror/lang-markdown";
 import { openSearchPanel, searchKeymap } from "@codemirror/search";
 import { parseFrontmatter } from "./frontmatter.js";
-import { cancelAutosave, scheduleAutoSave } from "./autosave.js";
+import {
+  autosave,
+  cancelAutosave,
+  clearSaveError,
+  scheduleAutoSave,
+  showSaveError,
+} from "./autosave.js";
 import {
   findExtension,
   findOptions,
@@ -194,20 +200,89 @@ function applyFrontmatter(text, updatePreview = true) {
   if (updatePreview) setPreview(parsed.body);
 }
 
-function setDoc(text) {
-  const next = text ?? "";
+// Every document (each open tab) gets its own EditorState, so loading a file
+// is never an undoable edit and undo can't reach into another file's history.
+// Background states keep their undo history, selection and scroll position.
+let editableOn = false;
+let activeDocKey = null;
+const docStates = new WeakMap(); // key (e.g. a tab object) -> { state, scroll }
+
+// Each EditorView.theme() adds CSS rules for good, so swaps reuse one theme
+// per font setting.
+let fontTheme = null;
+let fontThemeKey = "";
+function currentFontTheme() {
+  const key = `${editorDefaults.fontSize}/${editorDefaults.lineHeight}`;
+  if (!fontTheme || key !== fontThemeKey) {
+    fontTheme = editorFontTheme();
+    fontThemeKey = key;
+  }
+  return fontTheme;
+}
+
+// Settings may have changed while a state was in the background.
+function withCurrentSettings(state) {
+  return state.update({
+    effects: [
+      fontCompartment.reconfigure(currentFontTheme()),
+      wrapCompartment.reconfigure(wrapExt()),
+      lineNumberCompartment.reconfigure(lineNumberExt()),
+      activeLineCompartment.reconfigure(activeLineExt()),
+      tabCompartment.reconfigure(tabExt()),
+      editableCompartment.reconfigure(EditorView.editable.of(editableOn)),
+    ],
+  }).state;
+}
+
+function freshState(text) {
+  return withCurrentSettings(EditorState.create({ doc: text, extensions }));
+}
+
+function stashActiveDoc() {
+  if (activeDocKey) {
+    docStates.set(activeDocKey, { state: view.state, scroll: view.scrollSnapshot() });
+  }
+}
+
+// setState() runs no update listeners, so render the swapped-in text here.
+function showState(state, scroll) {
   cancelAutosave();
-  applyingLoad = true;
-  try {
-    if (view.state.doc.toString() !== next) {
-      view.dispatch({
-        changes: { from: 0, to: view.state.doc.length, insert: next },
-      });
-    }
-    applyFrontmatter(next);
-    updateWordCount(next);
-  } finally {
-    applyingLoad = false;
+  view.setState(state);
+  if (scroll) view.dispatch({ effects: scroll });
+  const text = state.doc.toString();
+  if (buffer) buffer.value = text;
+  applyFrontmatter(text);
+  updateWordCount(text);
+}
+
+// index.html saves tabs itself and reads the autosave settings.
+window.lightmdAutosave = autosave;
+window.lightmdShowSaveError = showSaveError;
+window.lightmdClearSaveError = clearSaveError;
+
+// Shows `text` as a new document with no undo history.
+function setDoc(text) {
+  stashActiveDoc();
+  activeDocKey = null;
+  showState(freshState(text ?? ""));
+}
+
+// Shows `key`'s own document. Its stashed state comes back when it still holds
+// `text`; otherwise (first show, or reloaded from disk) it starts fresh.
+function showDocument(key, text) {
+  if (key == null) {
+    setDoc(text);
+    return;
+  }
+  const next = String(text ?? "");
+  stashActiveDoc();
+  const kept = docStates.get(key);
+  activeDocKey = key;
+  if (kept && kept.state.doc.toString() === next.replace(/\r\n?/g, "\n")) {
+    showState(withCurrentSettings(kept.state), kept.scroll);
+  } else {
+    docStates.delete(key);
+    showState(freshState(next));
   }
 }
 
@@ -381,6 +456,7 @@ function setShowFrontmatter(on) {
 }
 
 function setEditable(on) {
+  editableOn = !!on;
   view.dispatch({
     effects: editableCompartment.reconfigure(EditorView.editable.of(!!on)),
   });
@@ -389,6 +465,7 @@ function setEditable(on) {
 window.lightmdEditor = {
   view,
   setDoc,
+  showDocument,
   setEditable,
   lineNumbers: editorDefaults.lineNumbers,
   setLineWrapping,

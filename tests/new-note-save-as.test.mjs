@@ -287,6 +287,8 @@ test("without Save As, Save and autosave must not call write_workspace_file inve
   const rt = boot();
   const timers = installFakeTimers();
   try {
+    // Save on a new note opens the Save As picker; here the user cancels it.
+    rt.backend.dialog.save = null;
     await openFolderAndFile(rt);
     await invokeNewNote(rt);
 
@@ -309,6 +311,10 @@ test("without Save As, Save and autosave must not call write_workspace_file inve
     await timers.flush();
 
     const newWrites = rt.writes.slice(writesBefore);
+    assert.ok(
+      rt.dialogs.some((d) => d.kind === "save"),
+      "Save on a new note must ask where to save it (Save As picker)",
+    );
     assert.equal(
       newWrites.length,
       0,
