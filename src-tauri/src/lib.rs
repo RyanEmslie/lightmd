@@ -915,6 +915,61 @@ mod tests {
         );
     }
 
+    #[cfg(unix)]
+    #[test]
+    fn write_file_saves_a_writable_file_in_a_read_only_folder() {
+        use std::os::unix::fs::PermissionsExt;
+        struct RestoreMode(PathBuf);
+        impl Drop for RestoreMode {
+            fn drop(&mut self) {
+                let _ = std::fs::set_permissions(&self.0, std::fs::Permissions::from_mode(0o755));
+            }
+        }
+
+        let (root, _cleanup) = temp_workspace("atomic-readonly-dir");
+        let docs = root.join("docs");
+        std::fs::create_dir_all(&docs).expect("docs folder");
+        std::fs::write(docs.join("note.md"), "original\n").expect("seed docs/note.md");
+        std::fs::set_permissions(docs.join("note.md"), std::fs::Permissions::from_mode(0o644))
+            .expect("chmod docs/note.md");
+        std::fs::set_permissions(&docs, std::fs::Permissions::from_mode(0o555))
+            .expect("chmod docs");
+        let _restore = RestoreMode(docs.clone());
+
+        // No temp file can be created beside it, but the file itself is writable,
+        // which saved fine before saves became atomic.
+        write_file(&root, "docs/note.md", "updated\n")
+            .expect("a writable file in a read-only folder must still save");
+        assert_eq!(
+            std::fs::read_to_string(docs.join("note.md")).expect("read docs/note.md"),
+            "updated\n"
+        );
+        assert_eq!(
+            dir_names(&docs),
+            ["note.md"],
+            "the save must not leave anything else in the folder"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn write_file_handles_names_at_the_file_name_limit() {
+        // 253 bytes: valid on its own, but too long to embed in a temp file name.
+        let name = format!("{}.md", "a".repeat(250));
+        let (root, _cleanup) = temp_workspace("atomic-long-name");
+        write_file(&root, &name, "created\n").expect("save a new file with a long name");
+        write_file(&root, &name, "replaced\n").expect("save over a file with a long name");
+        assert_eq!(
+            read_file(&root, &name).expect("read the long-named file"),
+            "replaced\n"
+        );
+        assert_eq!(
+            dir_names(&root),
+            [name],
+            "a save must not leave temp files in the folder"
+        );
+    }
+
     /// A workspace folder plus a sibling folder outside it, removed together on drop.
     fn workspace_with_outside(label: &str) -> (PathBuf, PathBuf, RemoveDirOnDrop) {
         let (parent, cleanup) = temp_workspace(label);
