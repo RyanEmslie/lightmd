@@ -4,6 +4,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { describe, test } from "node:test";
 import { loadSourceText } from "./helpers/source.mjs";
+import { buildTauriGlobals, createInvoke } from "./helpers/tauri.mjs";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const srcDir = join(root, "src");
@@ -364,23 +365,20 @@ async function runRejectedAutosave({ swallow = true } = {}) {
 
   const dirtyCalls = [];
   let dirty = true;
-  const invokes = [];
+  const backend = createInvoke({
+    root: "/tmp/lightmd-workspace",
+    files: { "note.md": "# saved\n" },
+    onInvoke(cmd) {
+      if (cmd === WRITE_CMD) throw WRITE_ERR;
+    },
+  });
+  const invokes = backend.invokes;
 
   const win = globalThis;
   win.document = doc;
   globalThis.document = doc;
   globalThis.window = win;
-  win.__TAURI__ = {
-    core: {
-      async invoke(cmd, args = {}) {
-        invokes.push({ cmd, args });
-        if (cmd === WRITE_CMD) {
-          throw new Error(WRITE_ERR);
-        }
-        return null;
-      },
-    },
-  };
+  win.__TAURI__ = buildTauriGlobals(backend.invoke).__TAURI__;
   globalThis.__TAURI__ = win.__TAURI__;
   win.lightmdWorkspace = {
     path: "/tmp/lightmd-workspace",
