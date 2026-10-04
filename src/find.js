@@ -1,11 +1,60 @@
-import { SearchQuery } from "@codemirror/search";
+import { SearchQuery, getSearchQuery, searchPanelOpen, setSearchQuery } from "@codemirror/search";
 import { RangeSetBuilder, StateEffect, StateField, findClusterBreak } from "@codemirror/state";
 import { Decoration, ViewPlugin } from "@codemirror/view";
 
+const optionValues = { caseSensitive: false, wholeWord: false };
+const optionListeners = new Set();
+
+function setFindOption(name, on) {
+  const next = !!on;
+  if (optionValues[name] === next) return;
+  optionValues[name] = next;
+  for (const listener of optionListeners) listener(findOptions);
+}
+
+// Settings write these; onFindOptionsChange() listeners (the editor's search
+// panel) follow along.
 export const findOptions = {
-  caseSensitive: false,
-  wholeWord: false,
+  get caseSensitive() {
+    return optionValues.caseSensitive;
+  },
+  set caseSensitive(on) {
+    setFindOption("caseSensitive", on);
+  },
+  get wholeWord() {
+    return optionValues.wholeWord;
+  },
+  set wholeWord(on) {
+    setFindOption("wholeWord", on);
+  },
 };
+
+export function onFindOptionsChange(listener) {
+  optionListeners.add(listener);
+  return () => optionListeners.delete(listener);
+}
+
+// Cmd+F opens CodeMirror's own search panel; give its query the Settings
+// case and whole-word options. A closed panel is synced when it opens.
+export function applyFindOptionsToSearch(view, options = findOptions) {
+  if (!searchPanelOpen(view.state)) return;
+  const current = getSearchQuery(view.state);
+  const caseSensitive = !!options.caseSensitive;
+  const wholeWord = !!options.wholeWord;
+  if (current.caseSensitive === caseSensitive && current.wholeWord === wholeWord) return;
+  view.dispatch({
+    effects: setSearchQuery.of(
+      new SearchQuery({
+        search: current.search,
+        replace: current.replace,
+        literal: current.literal,
+        regexp: current.regexp,
+        caseSensitive,
+        wholeWord,
+      }),
+    ),
+  });
+}
 
 function makeQuery(needle, options = findOptions) {
   return new SearchQuery({
@@ -353,36 +402,51 @@ const findQueryField = StateField.define({
   },
 });
 
-function highlight(query, state, add) {
-  if (!query.valid) return;
-  const cursor = query.getCursor(state);
-  while (!cursor.next().done) {
-    add(cursor.value.from, cursor.value.to);
+export const FIND_MARK_CAP = 1000;
+
+// Workspace-search highlights, built over the visible ranges only and capped,
+// so typing in a big document doesn't rescan all of it.
+export function findDecorations(view) {
+  const query = view.state.field(findQueryField, false);
+  if (!query || !query.valid) return Decoration.none;
+  const { state } = view;
+  const margin = query.search.length;
+  const builder = new RangeSetBuilder();
+  let count = 0;
+  let last = 0;
+  for (const range of view.visibleRanges) {
+    const from = Math.max(last, range.from - margin);
+    const to = Math.min(state.doc.length, range.to + margin);
+    if (from >= to) continue;
+    const cursor = query.getCursor(state, from, to);
+    while (count < FIND_MARK_CAP && !cursor.next().done) {
+      builder.add(cursor.value.from, cursor.value.to, findMark);
+      last = cursor.value.to;
+      count += 1;
+    }
+    if (count >= FIND_MARK_CAP) break;
   }
+  return builder.finish();
 }
 
-function decorationsFor(view) {
-  const query = view.state.field(findQueryField);
-  if (!query.valid) return Decoration.none;
-  const builder = new RangeSetBuilder();
-  highlight(query, view.state, (from, to) => {
-    builder.add(from, to, findMark);
-  });
-  return builder.finish();
+export function clearFindHighlight(view) {
+  const query = view.state.field(findQueryField, false);
+  if (!query || !query.valid) return;
+  view.dispatch({ effects: setFindQuery.of(makeQuery("")) });
 }
 
 const findHighlighter = ViewPlugin.fromClass(
   class {
     constructor(view) {
-      this.decorations = decorationsFor(view);
+      this.decorations = findDecorations(view);
     }
     update(update) {
+      const query = update.state.field(findQueryField);
       if (
-        update.docChanged ||
-        update.state.field(findQueryField) !==
-          update.startState.field(findQueryField)
+        query !== update.startState.field(findQueryField) ||
+        (query.valid && (update.docChanged || update.viewportChanged))
       ) {
-        this.decorations = decorationsFor(update.view);
+        this.decorations = findDecorations(update.view);
       }
     }
   },
