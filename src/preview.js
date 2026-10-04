@@ -26,6 +26,41 @@ md.renderer.rules.image = function (tokens, idx, options, env, self) {
   return defaultImageRule(tokens, idx, options, env, self);
 };
 
+// Headings get unique GitHub-style slug ids. The prefix (GitHub's too) keeps a
+// heading such as "# Preview" from taking an app element's id.
+export const HEADING_ID_PREFIX = "user-content-";
+
+function slugify(text) {
+  return text
+    .trim()
+    .toLowerCase()
+    .replace(/[^\p{L}\p{M}\p{N}\p{Pc}\- ]/gu, "")
+    .replace(/ /g, "-");
+}
+
+md.core.ruler.push("heading_ids", (state) => {
+  const used = new Map();
+  const tokens = state.tokens;
+  for (let i = 0; i < tokens.length; i++) {
+    if (tokens[i].type !== "heading_open") continue;
+    const parts = (tokens[i + 1]?.children || [])
+      .filter((t) => t.type === "text" || t.type === "code_inline")
+      .map((t) => t.content);
+    const base = slugify(parts.join("")) || "section";
+    let slug = base;
+    if (used.has(base)) {
+      let n = used.get(base);
+      do {
+        n += 1;
+        slug = `${base}-${n}`;
+      } while (used.has(slug));
+      used.set(base, n);
+    }
+    used.set(slug, 0);
+    tokens[i].attrSet("id", HEADING_ID_PREFIX + slug);
+  }
+});
+
 // Default live on; set live: false to update the preview only on save.
 export const preview = {
   live: true,
@@ -243,18 +278,65 @@ export function openPreviewLink(url) {
   }
 }
 
-export function handlePreviewClick(event) {
+function decodeFragment(fragment) {
+  try {
+    return decodeURIComponent(fragment);
+  } catch {
+    return fragment;
+  }
+}
+
+function scrollToHeading(root, fragment) {
+  const name = decodeFragment(fragment);
+  const doc = root && root.ownerDocument;
+  if (!name || !doc || typeof doc.getElementById !== "function") return;
+  for (const id of [HEADING_ID_PREFIX + name, HEADING_ID_PREFIX + name.toLowerCase(), name]) {
+    const el = doc.getElementById(id);
+    if (el && el !== root && root.contains(el)) {
+      if (typeof el.scrollIntoView === "function") el.scrollIntoView({ block: "start" });
+      return;
+    }
+  }
+}
+
+const OPENABLE_LINK = /\.(?:md|html|htm)$/i;
+
+// A relative .md/.html link opens through the app's open-file path, confined
+// to the workspace, then scrolls to its #fragment if it has one.
+async function openWorkspaceLink(href, root) {
+  const open = globalThis.lightmdOpenFile;
+  if (typeof open !== "function") return;
+  const ws = globalThis.lightmdWorkspace;
+  const relative = confinedWorkspaceRelative(href, ws && ws.relative);
+  if (!relative || !OPENABLE_LINK.test(relative)) return;
+  await open(relative);
+  if (typeof globalThis.lightmdPersistSession === "function") {
+    globalThis.lightmdPersistSession({ lastFile: relative, file: relative });
+  }
+  const hash = href.indexOf("#");
+  if (hash >= 0) scrollToHeading(root, href.slice(hash + 1));
+}
+
+export function handlePreviewClick(event, root = event.currentTarget) {
   const target = event.target;
   if (!target || typeof target.closest !== "function") return;
   const anchor = target.closest("a");
   if (!anchor) return;
   const href = anchor.getAttribute("href") || "";
   event.preventDefault();
-  if (!isHttpHref(href)) return;
-  void openPreviewLink(href);
+  if (isHttpHref(href)) {
+    void openPreviewLink(href);
+    return;
+  }
+  if (href.startsWith("#")) {
+    scrollToHeading(root, href.slice(1));
+    return;
+  }
+  if (hasScheme(href)) return;
+  return openWorkspaceLink(href, root);
 }
 
 export function bindPreviewLinks(root) {
   if (!root || typeof root.addEventListener !== "function") return;
-  root.addEventListener("click", handlePreviewClick);
+  root.addEventListener("click", (event) => handlePreviewClick(event, root));
 }
