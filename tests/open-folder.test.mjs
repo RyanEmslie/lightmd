@@ -3,10 +3,23 @@ import { test } from "node:test";
 import { bootApp } from "./helpers/app.mjs";
 import { loadHtml } from "./helpers/source.mjs";
 
-test("explorer has an Open Folder control (button or id)", () => {
-  const rt = bootApp();
+test("the explorer's Open Folder button picks a folder and lists it", async () => {
+  const rt = bootApp({ files: { "a.md": "A", "notes/b.md": "B" } });
   try {
-    assert.equal(rt.el("open-folder").tagName, "BUTTON");
+    const button = rt.el("open-folder");
+    assert.ok(button, "missing #open-folder in src/index.html");
+    assert.equal(button.tagName, "BUTTON");
+    assert.ok(rt.el("explorer-toolbar").contains(button), "#open-folder sits in the explorer toolbar");
+
+    await rt.clickAndAwait(button);
+
+    const pick = rt.dialogs.find((d) => d.kind === "open");
+    assert.ok(pick, "Open Folder must show the folder picker");
+    assert.equal(pick.options.directory, true, "the picker must choose a folder, not a file");
+    assert.equal(rt.win.lightmdWorkspace.path, rt.folderPath, "the picked folder becomes the workspace");
+    const list = rt.el("file-list");
+    assert.ok(list.querySelector('li[data-path="a.md"]'), "the folder's files must be listed");
+    assert.ok(list.querySelector('li[data-path="notes"][data-dir="true"]'), "sub-folders must be listed");
   } finally {
     rt.cleanup();
   }

@@ -4,6 +4,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { test } from "node:test";
 import { loadSourceFiles } from "./helpers/source.mjs";
+import { buildTauriGlobals, createInvoke } from "./helpers/tauri.mjs";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const srcDir = join(root, "src");
@@ -11,7 +12,6 @@ const srcDir = join(root, "src");
 const PANE_IDS = ["explorer", "editor", "preview"];
 const REORDER_IDS = String.raw`pane-order|reorder-panes|pane-reorder`;
 const REORDER_DATA = String.raw`data-pane-order|data-reorder-panes`;
-const WINDOW_HELPERS = String.raw`applyWindowSize|setWindowSize`;
 
 
 function loadSources() {
@@ -191,17 +191,6 @@ function bindsReorderPanes(src) {
   return bindBodies.some((body) => /\breorderPanes\s*\(/.test(body));
 }
 
-function restoreAppliesWindowSize(src) {
-  const cleaned = stripComments(src);
-  const bodies = fnBodies(cleaned, "restoreLayout");
-  if (!bodies.length) return false;
-  let blob = bodies.join("\n");
-  if (new RegExp(String.raw`\b(?:${WINDOW_HELPERS})\s*\(`).test(blob)) {
-    blob += `\n${fnBodies(cleaned, WINDOW_HELPERS).join("\n")}`;
-  }
-  return /setSize\s*\(|\bLogicalSize\b|\bPhysicalSize\b/.test(blob);
-}
-
 function getLayoutHasNoMock(src) {
   const bodies = fnBodies(src, "getLayout");
   if (!bodies.length) return false;
@@ -317,13 +306,63 @@ test("status strip stays path dirty word count only (no layout widgets)", () => 
   assert.match(strip.full, /\bid=["']word-count["']/, "status strip must keep word count");
 });
 
-test("restore applies persisted window size (setSize/LogicalSize/PhysicalSize in restore path)", () => {
-  const js = loadJs();
-  assert.ok(
-    restoreAppliesWindowSize(js),
-    "restoreLayout must apply persisted window size via setSize / LogicalSize / PhysicalSize (copying layout.window is not enough)",
+async function restoreWithSavedLayout(saved) {
+  const prevDoc = globalThis.document;
+  const prevLs = globalThis.localStorage;
+  const prevTauri = globalThis.__TAURI__;
+  const backend = createInvoke();
+  globalThis.__TAURI__ = buildTauriGlobals(backend.invoke).__TAURI__;
+  try {
+    installLocalStorage().setItem("lightmd.layout", JSON.stringify(saved));
+    installDocument();
+    const href = pathToFileURL(join(srcDir, "layout.js")).href;
+    await import(`${href}?pane-layout-restore=${Date.now()}-${Math.random()}`);
+    await new Promise((resolve) => setImmediate(resolve));
+    return backend;
+  } finally {
+    globalThis.document = prevDoc;
+    globalThis.localStorage = prevLs;
+    if (prevTauri === undefined) delete globalThis.__TAURI__;
+    else globalThis.__TAURI__ = prevTauri;
+  }
+}
+
+const SAVED_WINDOW = { window: { width: 1234, height: 777 }, remember: true };
+
+test("restore applies the persisted window size through the Tauri window API", async () => {
+  const backend = await restoreWithSavedLayout(SAVED_WINDOW);
+  const calls = backend.invokes.filter((c) => c.cmd === "plugin:window|set_size");
+  assert.equal(
+    calls.length,
+    1,
+    "restoreLayout must call getCurrentWindow().setSize() once (copying layout.window is not enough)",
+  );
+  assert.deepEqual(
+    calls[0].args.value,
+    { Logical: { width: 1234, height: 777 } },
+    "setSize must receive the saved size as a LogicalSize",
   );
 });
+
+test("restore leaves the window size alone when remember layout is off", async () => {
+  const backend = await restoreWithSavedLayout({ ...SAVED_WINDOW, remember: false });
+  assert.equal(
+    backend.invokes.some((c) => c.cmd === "plugin:window|set_size"),
+    false,
+    "with remember layout off, restore must not resize the window",
+  );
+});
+
+test(
+  "the app's capabilities let the window-size restore through",
+  { todo: "setSize is rejected: capabilities lack core:window:allow-set-size — fixed by Task 2" },
+  async () => {
+    const backend = await restoreWithSavedLayout(SAVED_WINDOW);
+    const rejected = backend.rejections.find((r) => r.cmd === "plugin:window|set_size");
+    assert.equal(rejected, undefined, `setSize was rejected: ${rejected?.error}`);
+    assert.equal(backend.windowCalls.length, 1, "the window must actually be resized");
+  },
+);
 
 test("chrome control rearranges panes (not API-only)", () => {
   const files = loadSources();
