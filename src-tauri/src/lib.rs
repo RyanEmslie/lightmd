@@ -1134,6 +1134,19 @@ mod tests {
     }
 
     #[test]
+    fn file_exists_is_false_for_a_path_under_a_regular_file() {
+        let (root, _cleanup) = temp_workspace("exists-under-file");
+        std::fs::write(root.join("note.md"), "note\n").expect("seed note.md");
+        for relative in ["note.md/x", "note.md/x/y.md"] {
+            let exists = super::file_exists(&root, relative);
+            assert!(
+                matches!(exists, Ok(false)),
+                "file_exists(root, {relative:?}) must be Ok(false), got {exists:?}"
+            );
+        }
+    }
+
+    #[test]
     fn write_file_returns_the_new_modified_ms() {
         let (root, _cleanup) = temp_workspace("write-mtime");
         let modified: u64 = write_file(&root, "note.md", "hello\n").expect("save note.md");
