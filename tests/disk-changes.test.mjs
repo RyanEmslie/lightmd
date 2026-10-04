@@ -96,6 +96,31 @@ describe("saves carry the modified time the tab last saw", { concurrency: false 
   });
 });
 
+describe("our own saves never look like someone else's change", { concurrency: false }, () => {
+  test("a Save while another save of the file is writing waits for it instead of conflicting", async () => {
+    const rt = boot({
+      onInvoke: async (cmd) => {
+        if (cmd === "write_workspace_file") await delay(10);
+      },
+    });
+    try {
+      rt.autosave.enabled = false;
+      await rt.win.lightmdOpenFolder(FOLDER);
+      await rt.win.lightmdOpenFile("a.md");
+      type(rt, "first");
+      const first = rt.win.lightmdSave();
+      type(rt, "first and second");
+      const second = rt.win.lightmdSave();
+      await Promise.all([first, second]);
+      assert.deepEqual(rt.confirms, [], "no conflict between our own two writes");
+      assert.equal(rt.files.get("a.md"), "first and second");
+      assert.equal(rt.el("dirty").hidden, true);
+    } finally {
+      rt.cleanup();
+    }
+  });
+});
+
 describe("saving over a file another program changed asks first", { concurrency: false }, () => {
   async function conflicted(rt) {
     rt.autosave.enabled = false;
