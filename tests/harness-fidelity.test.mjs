@@ -83,6 +83,38 @@ describe("fake Tauri backend mirrors the real one", () => {
     ]);
   });
 
+  test("read_workspace_image answers raw bytes as an ArrayBuffer, like tauri::ipc::Response", async () => {
+    const { invoke } = createInvoke({ root: "/ws", files: { "pic.png": { bytes: [0x89, 0x50, 0xfe] } } });
+    const bytes = await invoke("read_workspace_image", { path: "/ws", relative: "pic.png" });
+    assert.ok(bytes instanceof ArrayBuffer, "image bytes must arrive as an ArrayBuffer, not a number[]");
+    assert.deepEqual([...new Uint8Array(bytes)], [0x89, 0x50, 0xfe]);
+  });
+
+  test("stat_workspace_file reports size in bytes and modified_ms, and rejects folders", async () => {
+    const { invoke } = createInvoke({
+      root: "/ws",
+      files: { "a.md": "héllo", "pic.png": { bytes: [1, 2, 3] } },
+      folders: ["notes"],
+    });
+    const stat = await invoke("stat_workspace_file", { path: "/ws", relative: "a.md" });
+    assert.deepEqual(Object.keys(stat).sort(), ["modified_ms", "size"]);
+    assert.equal(stat.size, 6, "size is the UTF-8 byte length, like fs::metadata");
+    assert.equal(typeof stat.modified_ms, "number");
+    assert.equal((await invoke("stat_workspace_file", { path: "/ws", relative: "pic.png" })).size, 3);
+    assert.equal(
+      await rejection(invoke("stat_workspace_file", { path: "/ws", relative: "notes" })),
+      "path is not a file",
+    );
+    assert.equal(
+      await rejection(invoke("stat_workspace_file", { path: "/ws", relative: "nope.md" })),
+      "No such file or directory (os error 2)",
+    );
+    assert.equal(
+      await rejection(invoke("stat_workspace_file", { path: "/ws", relative: "../x.md" })),
+      "path is outside workspace root",
+    );
+  });
+
   test("errors are plain strings, like Rust's String errors", async () => {
     const { invoke } = createInvoke({ root: "/ws", files: { "a.md": "A" } });
     const missing = await rejection(invoke("read_workspace_file", { path: "/ws", relative: "nope.md" }));

@@ -157,8 +157,10 @@ function checkArgs(cmd, args) {
 }
 
 // What crosses Tauri's IPC is JSON: undefined keys vanish, bytes become arrays.
+// A raw tauri::ipc::Response (read_workspace_image) arrives as an ArrayBuffer.
 function toIpc(value) {
   if (value === undefined) return null;
+  if (value instanceof ArrayBuffer) return value.slice(0);
   return JSON.parse(
     JSON.stringify(value, (_key, v) => (ArrayBuffer.isView(v) ? Array.from(v) : v)),
   );
@@ -439,7 +441,8 @@ export function createInvoke({
       if (found.error) throw found.error;
       if (found.entry.type === "dir") throw EISDIR;
       const data = found.entry.data;
-      return typeof data === "string" ? Array.from(new TextEncoder().encode(data)) : data.bytes;
+      const bytes = typeof data === "string" ? new TextEncoder().encode(data) : Uint8Array.from(data.bytes);
+      return bytes.buffer;
     },
     workspace_file_exists({ path, relative }) {
       const found = lookup(confine(path, relative).abs);
