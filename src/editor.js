@@ -16,7 +16,7 @@ import {
 import { preview as previewConfig, renderPreview, rewritePreviewImages, bindPreviewLinks } from "./preview.js";
 import { isHtmlFile, showHtmlViewer, hideHtmlViewer } from "./html-viewer.js";
 import { applyTheme, setTheme } from "./palettes.js";
-import { restoreLayout } from "./layout.js";
+import "./layout.js";
 import { persistSession, restoreSession } from "./session.js";
 import { editorDefaults, mountSettings } from "./settings.js";
 import { bindKeyboard } from "./keyboard.js";
@@ -401,7 +401,6 @@ window.lightmdEditor = {
 };
 window.lightmdScheduleAutoSave = scheduleAutoSave;
 window.lightmdCancelAutosave = cancelAutosave;
-restoreLayout();
 restoreSession();
 mountSettings();
 try {

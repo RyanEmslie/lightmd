@@ -105,8 +105,9 @@ export function bindKeyboard() {
   globalThis[BOUND] = true;
 }
 
+// bindKeyboard() skips hosts without addEventListener; anything else is a bug.
 try {
   bindKeyboard();
-} catch {
-  // DOM-optional: Node imports this module with a document mock.
+} catch (err) {
+  console.error("LightMD: could not bind keyboard shortcuts", err);
 }

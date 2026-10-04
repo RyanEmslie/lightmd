@@ -368,8 +368,10 @@ export function mountSettings() {
   bindSettings();
 }
 
-try {
-  bindSettings();
-} catch {
-  // Node import / mock document
+if (doc() && typeof doc().getElementById === "function") {
+  try {
+    bindSettings();
+  } catch (err) {
+    console.error("LightMD: could not bind Settings", err);
+  }
 }

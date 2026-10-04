@@ -651,10 +651,14 @@ function applyWindowSize() {
       const win = getCurrent();
       if (win && typeof win.setSize === "function") {
         const ret = win.setSize(size);
-        if (ret && typeof ret.catch === "function") ret.catch(() => {});
+        if (ret && typeof ret.catch === "function") {
+          ret.catch((err) => console.error("LightMD: could not restore the window size", err));
+        }
       }
     }
-  } catch {}
+  } catch (err) {
+    console.error("LightMD: could not restore the window size", err);
+  }
 }
 
 export function persistLayout() {
@@ -896,18 +900,19 @@ function bindSidebarToggle() {
   }
 }
 
+// Each init step reports its own failure, so one bug can't hide the other.
 try {
   restoreLayout();
-} catch {
-  // DOM-optional: Node imports this module with a document mock.
+} catch (err) {
+  console.error("LightMD: could not restore the layout", err);
 }
 
-try {
-  bindLayoutControls();
-} catch {
-  // mock document has no addEventListener
+if (doc() && typeof doc().getElementById === "function") {
+  try {
+    bindLayoutControls();
+  } catch (err) {
+    console.error("LightMD: could not bind the layout controls", err);
+  }
 }
 
-try {
-  globalThis.lightmdRefreshLayout = refreshLayout;
-} catch {}
+globalThis.lightmdRefreshLayout = refreshLayout;
