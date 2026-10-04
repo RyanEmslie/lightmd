@@ -245,7 +245,19 @@ pub fn stat_file(root: &Path, relative: impl AsRef<Path>) -> io::Result<FileStat
 
 /// Ok(false) when nothing exists at the path; Err when it escapes the workspace.
 pub fn file_exists(root: &Path, relative: impl AsRef<Path>) -> io::Result<bool> {
-    confined_path(root, relative)?.try_exists()
+    // A missing folder, or a file used as a folder (note.md/x), means the path
+    // does not exist. Escapes and dangling symlinks are still errors.
+    match confined_path(root, relative).and_then(|path| path.try_exists()) {
+        Err(e)
+            if matches!(
+                e.kind(),
+                io::ErrorKind::NotFound | io::ErrorKind::NotADirectory
+            ) =>
+        {
+            Ok(false)
+        }
+        result => result,
+    }
 }
 
 /// Writes `contents` and returns the file's new `modified_ms`.
