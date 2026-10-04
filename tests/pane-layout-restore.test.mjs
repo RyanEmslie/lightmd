@@ -418,7 +418,8 @@ test("reopening a pane after both content panes are hidden restores its grid col
     mod.collapsePane("preview", false);
     assert.equal(
       shell.style.gridTemplateColumns,
-      "minmax(240px, 1fr) minmax(160px, 1fr)",
+      "240px minmax(160px, 1fr)",
+      "beside another pane the explorer keeps a fixed track instead of growing with the window",
     );
     assert.equal(
       panes.get("preview").style.gridColumn,

@@ -97,40 +97,37 @@ function clampOpenPaneWidths() {
   }
 }
 
-function captureWidths() {
-  const d = doc();
-  if (!d || typeof d.getElementById !== "function") return;
+function isPinned(id) {
+  return id === "explorer" || !!layout.fixed[id];
+}
+
+// Pinned panes (the explorer and any pane a drag sized) keep their saved
+// widths while the window has room. When it doesn't, the part of each width
+// above MIN_PANE shrinks in proportion so every visible pane stays on-screen.
+// Saved widths are left alone, so a bigger window gets them back.
+function fittedWidths() {
   const vis = visiblePaneIds();
-  // A lone pane just fills leftover window space; persisting that width
-  // pushes later panes off-screen when they reopen.
-  if (vis.length < 2) return;
-  for (const id of vis) {
-    const el = d.getElementById(id);
-    const width = el?.getBoundingClientRect?.()?.width;
-    if (typeof width === "number" && Number.isFinite(width) && width > 0) {
-      layout.widths[id] = clampOpenWidth(width, layout.widths[id] || 240);
-    }
+  const pinned = vis.filter(isPinned);
+  const out = {};
+  for (const id of pinned) out[id] = clampOpenWidth(layout.widths[id]);
+  const room = windowSize().width - (vis.length - pinned.length) * MIN_PANE;
+  const total = pinned.reduce((sum, id) => sum + out[id], 0);
+  const spare = total - pinned.length * MIN_PANE;
+  if (total > room && spare > 0) {
+    const scale = Math.max(0, room - pinned.length * MIN_PANE) / spare;
+    for (const id of pinned) out[id] = Math.floor(MIN_PANE + (out[id] - MIN_PANE) * scale);
   }
-  clampOpenPaneWidths();
+  return out;
 }
 
-function minTrackFor(id) {
-  const vis = visiblePaneIds();
-  const raw =
-    id === "explorer" || layout.fixed[id]
-      ? clampOpenWidth(layout.widths[id])
-      : MIN_PANE;
-  const others = Math.max(0, vis.length - 1);
-  if (others === 0) return raw;
-  const max = Math.max(MIN_PANE, windowSize().width - others * MIN_PANE);
-  return Math.min(raw, max);
-}
-
-function columnFor(id) {
+function columnFor(id, fit) {
   if (layout.open[id] === false) return "0px";
-  if (id === "explorer" || layout.fixed[id]) {
-    return `minmax(${minTrackFor(id)}px, 1fr)`;
+  if (id === "explorer") {
+    // A fixed track: a 1fr share would grow the explorer with the window.
+    // Alone, it fills the window instead of leaving it blank.
+    return visiblePaneIds().length > 1 ? `${fit.explorer}px` : `minmax(${fit.explorer}px, 1fr)`;
   }
+  if (layout.fixed[id]) return `minmax(${fit[id]}px, 1fr)`;
   return `minmax(${MIN_PANE}px, 1fr)`;
 }
 
@@ -142,6 +139,14 @@ function relaxContentWidths() {
   if (layout.open.editor !== false && layout.open.preview !== false) {
     layout.fixed.editor = false;
     layout.fixed.preview = false;
+  }
+}
+
+// A content pane coming back gets an even split; anything else (the explorer
+// toggling, Settings closing, a pane hiding) keeps the user's dragged split.
+function relaxIfContentReopened(before) {
+  if (["editor", "preview"].some((id) => before[id] === false && layout.open[id] !== false)) {
+    relaxContentWidths();
   }
 }
 
@@ -289,6 +294,16 @@ function eventClientX(ev) {
   return null;
 }
 
+// The 120ms grid transition would make panes lag the pointer and leave the
+// next drag measuring mid-animation widths.
+function setResizing(on) {
+  const d = doc();
+  const shell = d && typeof d.getElementById === "function" ? d.getElementById("shell") : null;
+  if (shell?.classList && typeof shell.classList.toggle === "function") {
+    shell.classList.toggle("is-resizing", on);
+  }
+}
+
 function onSplitterDown(ev) {
   if (drag) return;
   const target = ev?.currentTarget && isSplitterEl(ev.currentTarget) ? ev.currentTarget : ev?.target;
@@ -300,6 +315,7 @@ function onSplitterDown(ev) {
   if (startX == null) return;
   if (typeof ev.preventDefault === "function") ev.preventDefault();
   freezeVisiblePaneWidths();
+  setResizing(true);
   drag = {
     left: pair[0],
     right: pair[1],
@@ -327,6 +343,7 @@ function endDrag() {
   const el = drag.el;
   const pointerId = drag.pointerId;
   drag = null;
+  setResizing(false);
   if (pointerId != null && el && typeof el.releasePointerCapture === "function") {
     try {
       el.releasePointerCapture(pointerId);
@@ -498,6 +515,7 @@ function applyLayoutToDom() {
   if (!d || typeof d.getElementById !== "function") return;
   const shell = d.getElementById("shell");
   const cols = [];
+  const fit = fittedWidths();
   const visibleContent = layout.order.filter(
     (id) => id !== "explorer" && layout.open[id] !== false,
   );
@@ -508,12 +526,12 @@ function applyLayoutToDom() {
     applyPane(el, open);
     if (id === "explorer") {
       if (el?.style) el.style.gridColumn = "1";
-      cols.push(columnFor(id));
+      cols.push(columnFor(id, fit));
       continue;
     }
     if (open) {
       if (el?.style) el.style.gridColumn = String(visibleContent.indexOf(id) + 2);
-      cols.push(columnFor(id));
+      cols.push(columnFor(id, fit));
     } else if (el?.style) {
       el.style.gridColumn = "";
     }
@@ -625,7 +643,6 @@ export function persistLayout() {
     }
     return;
   }
-  captureWidths();
   clampOpenPaneWidths();
   layout.order = normalizeOrder(layout.order);
   const size = windowSize();
@@ -726,13 +743,15 @@ export function restoreLayout() {
 
 export function collapsePane(id, collapsed) {
   if (!isPaneId(id)) return;
+  const before = { ...layout.open };
   layout.open[id] = !collapsed;
-  relaxContentWidths();
+  relaxIfContentReopened(before);
   applyLayoutToDom();
   persistLayout();
 }
 
 export function setLayout(nameOrState) {
+  const before = { ...layout.open };
   if (nameOrState === "editor-only" || nameOrState === "editorOnly") {
     layout.open.explorer = false;
     layout.open.editor = true;
@@ -766,7 +785,7 @@ export function setLayout(nameOrState) {
   } else {
     return;
   }
-  relaxContentWidths();
+  relaxIfContentReopened(before);
   applyLayoutToDom();
   persistLayout();
 }
@@ -821,6 +840,7 @@ function bindLayoutControls() {
   bindSidebarToggle();
   if (typeof globalThis.addEventListener === "function") {
     globalThis.addEventListener("resize", () => {
+      applyLayoutToDom();
       persistLayout();
     });
   }

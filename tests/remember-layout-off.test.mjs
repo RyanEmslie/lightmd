@@ -244,6 +244,9 @@ function seedRememberedLayout() {
   globalThis.innerHeight = SAVED_WINDOW.height;
   globalThis.window.innerWidth = SAVED_WINDOW.width;
   globalThis.window.innerHeight = SAVED_WINDOW.height;
+  // Widths are saved as the layout computed them (a drag sets them), not
+  // re-measured from the DOM when persisting.
+  Object.assign(layout.widths, SAVED_WIDTHS);
   reorderPanes(SAVED_ORDER.slice());
   collapsePane("explorer", true);
   persistLayout();

@@ -678,9 +678,11 @@ function reset(opts = {}) {
   live.widths.explorer = DEFAULT_WIDTHS.explorer;
   live.widths.editor = DEFAULT_WIDTHS.editor;
   live.widths.preview = DEFAULT_WIDTHS.preview;
-  live.window.width = 800;
+  // Wide enough for the default 240 + 400 + 400 panes: a narrower window now
+  // shrinks pinned panes to fit, which would hide the dragged width.
+  live.window.width = 1280;
   live.window.height = 600;
-  globalThis.innerWidth = 800;
+  globalThis.innerWidth = 1280;
   globalThis.innerHeight = 600;
   setLayout("three-pane");
   if (opts.order && opts.order.join(",") !== DEFAULT_ORDER.join(",")) {

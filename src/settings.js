@@ -8,7 +8,7 @@ import { session, persistSession } from "./session.js";
 import { htmlJs, setHtmlJsEnabled } from "./html-viewer.js";
 import { preview } from "./preview.js";
 import { findOptions } from "./find.js";
-import { layout, persistLayout, setLayout } from "./layout.js";
+import { layout, persistLayout, refreshLayout } from "./layout.js";
 
 export {
   palettes,
@@ -75,7 +75,7 @@ export function closeSettings() {
   if (shell) {
     shell.hidden = false;
     if (shell.style) shell.style.display = "";
-    setLayout({ open: { ...layout.open }, order: layout.order.slice() });
+    refreshLayout();
   }
 }
 
