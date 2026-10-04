@@ -3,6 +3,10 @@ import taskLists from "markdown-it-task-lists";
 
 const md = new MarkdownIt({ html: false }).use(taskLists);
 
+// A workspace image's markdown src. renderPreview puts it here instead of in
+// src, and rewritePreviewImages sets src to the image's data: URL.
+const ORIGINAL_SRC = "data-lightmd-src";
+
 function isBlockedImageSrc(src) {
   const s = String(src || "");
   if (/^(?:https?:|\/\/)/i.test(s)) return true;
@@ -22,6 +26,10 @@ md.renderer.rules.image = function (tokens, idx, options, env, self) {
   const srcIndex = token.attrIndex("src");
   if (srcIndex >= 0 && isBlockedImageSrc(token.attrs[srcIndex][1])) {
     token.attrs[srcIndex][1] = "";
+  } else if (srcIndex >= 0 && token.attrs[srcIndex][1] && !hasScheme(token.attrs[srcIndex][1])) {
+    // A workspace image gets its src from rewritePreviewImages; a relative
+    // src here would only make the webview fetch a URL that 404s.
+    token.attrs[srcIndex][0] = ORIGINAL_SRC;
   }
   return defaultImageRule(tokens, idx, options, env, self);
 };
@@ -78,8 +86,6 @@ let imageCacheChars = 0;
 const imageReads = new Map(); // key -> pending read
 const imageMisses = new Map(); // key -> Date.now() when the miss expires
 let rewriteSeq = 0;
-// The markdown src of an <img> whose src was replaced by a data: URL.
-const ORIGINAL_SRC = "data-lightmd-src";
 
 function hasScheme(src) {
   return /^(?:[a-z][a-z0-9+.-]*:|\/\/)/i.test(src);
