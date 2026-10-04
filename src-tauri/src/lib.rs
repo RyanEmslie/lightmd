@@ -1399,4 +1399,102 @@ mod tests {
             "the opener must be limited to http(s) URLs"
         );
     }
+
+    fn url(s: &str) -> tauri::Url {
+        s.parse().unwrap_or_else(|e| panic!("{s} must parse: {e}"))
+    }
+
+    #[test]
+    fn navigation_allows_the_app_and_frame_documents() {
+        use super::{classify_navigation, Navigation};
+        for allowed in [
+            "tauri://localhost",
+            "tauri://localhost/index.html#settings",
+            "http://tauri.localhost/",
+            "https://tauri.localhost/index.html",
+            // srcdoc and blank iframes (the HTML preview) navigate the subframe.
+            "about:blank",
+            "about:srcdoc",
+            "data:text/html,<p>hi</p>",
+            "blob:tauri://localhost/0c6c0f4e-2b5e-4c47-9f5b-1d1e3a5b8c2a",
+        ] {
+            assert_eq!(
+                classify_navigation(&url(allowed), None),
+                Navigation::Allow,
+                "{allowed} must stay in the webview"
+            );
+        }
+    }
+
+    #[test]
+    fn navigation_sends_web_links_to_the_system_browser() {
+        use super::{classify_navigation, Navigation};
+        for external in [
+            "https://github.com/clearly-bots/lightmd",
+            "https://github.com/clearly-bots/lightmd/blob/main/LICENSE",
+            "http://example.com/",
+            "http://localhost:1420/",
+        ] {
+            assert_eq!(
+                classify_navigation(&url(external), None),
+                Navigation::OpenExternal,
+                "{external} must open in the system browser, not replace the app"
+            );
+        }
+    }
+
+    #[test]
+    fn navigation_allows_only_the_configured_dev_server_origin() {
+        use super::{classify_navigation, Navigation};
+        let dev = url("http://localhost:1420");
+        assert_eq!(
+            classify_navigation(&url("http://localhost:1420/index.html"), Some(&dev)),
+            Navigation::Allow
+        );
+        for other in ["http://localhost:1421/", "https://localhost:1420/"] {
+            assert_eq!(
+                classify_navigation(&url(other), Some(&dev)),
+                Navigation::OpenExternal,
+                "{other} is not the dev server origin"
+            );
+        }
+    }
+
+    #[test]
+    fn navigation_blocks_everything_else() {
+        use super::{classify_navigation, Navigation};
+        for blocked in [
+            "file:///etc/passwd",
+            "mailto:someone@example.com",
+            "tel:+15555550100",
+            "javascript:alert(1)",
+            "tauri://elsewhere/",
+            "asset://localhost/etc/passwd",
+            "ftp://example.com/",
+        ] {
+            assert_eq!(
+                classify_navigation(&url(blocked), None),
+                Navigation::Block,
+                "{blocked} must be cancelled"
+            );
+        }
+    }
+
+    #[test]
+    fn external_opens_are_throttled() {
+        use super::external_open_allowed;
+        let start = std::time::Instant::now();
+        assert!(
+            external_open_allowed(None, start),
+            "the first open is allowed"
+        );
+        assert!(
+            !external_open_allowed(Some(start), start + Duration::from_millis(300)),
+            "a second open within a second is dropped, so a page cannot flood the browser"
+        );
+        assert!(external_open_allowed(
+            Some(start),
+            start + Duration::from_secs(1)
+        ));
+    }
 }
