@@ -10,6 +10,21 @@ export const htmlJs = {
 
 const ALLOW_SCRIPTS = "allow-scripts";
 
+// sandbox="" stops scripts but not images, stylesheets, fonts or frames, so an
+// opened file could reach the network. This policy blocks every remote load.
+const VIEWER_CSP =
+  "default-src 'none'; img-src data:; style-src 'unsafe-inline'; font-src data:; media-src data:; form-action 'none'";
+const LEADING_DOCTYPE = /^\s*<!doctype[^>]*>/i;
+
+// The CSP meta goes first, after any doctype so the page keeps standards mode.
+function withCsp(html) {
+  const policy = htmlJs.enabled ? `${VIEWER_CSP}; script-src 'unsafe-inline'` : VIEWER_CSP;
+  const meta = `<meta http-equiv="Content-Security-Policy" content="${policy}">`;
+  const doctype = LEADING_DOCTYPE.exec(html);
+  const at = doctype ? doctype[0].length : 0;
+  return html.slice(0, at) + meta + html.slice(at);
+}
+
 let lastHtml = "";
 let bound = false;
 
@@ -33,7 +48,7 @@ function syncHtmlJsUi() {
 }
 
 function reloadSrcdoc(frame) {
-  frame.srcdoc = lastHtml ?? "";
+  frame.srcdoc = withCsp(lastHtml ?? "");
 }
 
 export function setHtmlJsEnabled(enabled) {
@@ -72,7 +87,7 @@ export function showHtmlViewer(html) {
   const same = lastHtml === next && frame.hidden === false;
   lastHtml = next;
   applySandbox(frame);
-  if (!same) frame.srcdoc = lastHtml;
+  if (!same) frame.srcdoc = withCsp(lastHtml);
   frame.hidden = false;
   if (previewBody) previewBody.hidden = true;
   if (chrome) chrome.hidden = false;

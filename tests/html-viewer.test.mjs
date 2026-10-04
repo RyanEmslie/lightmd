@@ -65,7 +65,11 @@ test("opening .html/.htm uses a sandboxed viewer with JS off by default", () => 
   assert.equal(isHtmlFile("page.html"), true);
   assert.equal(isHtmlFile("nested/page.htm"), true);
   assert.equal(frame.hidden, false);
-  assert.equal(frame.srcdoc, html);
+  // The viewer adds only its CSP meta (tests/html-viewer-csp.test.mjs).
+  assert.equal(
+    frame.srcdoc.replace(/<meta http-equiv="Content-Security-Policy" content="[^"]*">/, ""),
+    html,
+  );
   assert.equal(
     frame.getAttribute("sandbox"),
     "",
