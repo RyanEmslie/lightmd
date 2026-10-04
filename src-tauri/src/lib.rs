@@ -362,36 +362,87 @@ pub fn create_folder(root: &Path, relative: impl AsRef<Path>) -> io::Result<()> 
     fs::create_dir_all(path)
 }
 
-#[tauri::command]
-fn list_workspace(path: String, sort: Option<String>) -> Result<Vec<Entry>, String> {
-    let root = Path::new(&path);
-    match sort.as_deref() {
-        Some("modified") => sort_by_modified(root),
-        _ => sort_by_name(root),
-    }
-    .map_err(|e| e.to_string())
-}
-
-#[tauri::command]
-fn read_workspace_file(path: String, relative: String) -> Result<String, String> {
-    read_file(Path::new(&path), &relative).map_err(|e| e.to_string())
-}
-
-#[tauri::command]
-fn write_workspace_file(path: String, relative: String, contents: String) -> Result<(), String> {
-    write_file(Path::new(&path), &relative, contents)
-        .map(|_| ())
+/// Runs blocking file I/O on Tauri's blocking pool and maps errors to strings.
+async fn run_blocking<T, F>(task: F) -> Result<T, String>
+where
+    T: Send + 'static,
+    F: FnOnce() -> io::Result<T> + Send + 'static,
+{
+    tauri::async_runtime::spawn_blocking(task)
+        .await
+        .map_err(|e| e.to_string())?
         .map_err(|e| e.to_string())
 }
 
+// The commands are async so Tauri runs them off the main (UI) thread.
+
 #[tauri::command]
-fn create_workspace_folder(path: String, relative: String) -> Result<(), String> {
-    create_folder(Path::new(&path), &relative).map_err(|e| e.to_string())
+async fn list_workspace(path: String, sort: Option<String>) -> Result<Vec<Entry>, String> {
+    run_blocking(move || {
+        let root = Path::new(&path);
+        match sort.as_deref() {
+            Some("modified") => sort_by_modified(root),
+            _ => sort_by_name(root),
+        }
+    })
+    .await
 }
 
 #[tauri::command]
-fn read_workspace_image(path: String, relative: String) -> Result<Vec<u8>, String> {
-    read_image(Path::new(&path), &relative).map_err(|e| e.to_string())
+async fn read_workspace_file(path: String, relative: String) -> Result<String, String> {
+    run_blocking(move || read_file(Path::new(&path), &relative)).await
+}
+
+#[tauri::command]
+async fn write_workspace_file(
+    path: String,
+    relative: String,
+    contents: String,
+    expected_modified_ms: Option<u64>,
+) -> Result<u64, String> {
+    run_blocking(move || {
+        write_file_if_unchanged(Path::new(&path), &relative, contents, expected_modified_ms)
+    })
+    .await
+}
+
+#[tauri::command]
+async fn stat_workspace_file(path: String, relative: String) -> Result<FileStat, String> {
+    run_blocking(move || stat_file(Path::new(&path), &relative)).await
+}
+
+#[tauri::command]
+async fn workspace_file_exists(path: String, relative: String) -> Result<bool, String> {
+    run_blocking(move || file_exists(Path::new(&path), &relative)).await
+}
+
+#[tauri::command]
+async fn create_workspace_folder(path: String, relative: String) -> Result<(), String> {
+    run_blocking(move || create_folder(Path::new(&path), &relative)).await
+}
+
+#[tauri::command]
+async fn read_workspace_image(
+    path: String,
+    relative: String,
+) -> Result<tauri::ipc::Response, String> {
+    // Raw bytes reach JS as an ArrayBuffer instead of a JSON array of numbers.
+    run_blocking(move || read_image(Path::new(&path), &relative))
+        .await
+        .map(tauri::ipc::Response::new)
+}
+
+fn invoke_handler<R: tauri::Runtime>(
+) -> impl Fn(tauri::ipc::Invoke<R>) -> bool + Send + Sync + 'static {
+    tauri::generate_handler![
+        list_workspace,
+        read_workspace_file,
+        write_workspace_file,
+        stat_workspace_file,
+        workspace_file_exists,
+        read_workspace_image,
+        create_workspace_folder
+    ]
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -399,13 +450,7 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
-        .invoke_handler(tauri::generate_handler![
-            list_workspace,
-            read_workspace_file,
-            write_workspace_file,
-            read_workspace_image,
-            create_workspace_folder
-        ])
+        .invoke_handler(invoke_handler())
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }
