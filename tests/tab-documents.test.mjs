@@ -116,6 +116,39 @@ describe("Save As outside the workspace keeps the other tabs on their own files"
   });
 });
 
+describe("Save As binds exactly one tab to the saved file", () => {
+  test("with no tab open, the saved file opens in an editable tab", async () => {
+    const rt = bootApp({ files: {}, dialog: { save: "/tmp/lightmd-ws/first.md" } });
+    try {
+      await rt.win.lightmdOpenFolder(rt.folderPath);
+      assert.equal(rt.win.lightmdEditor.editable, false, "precondition: nothing open");
+      assert.equal(await rt.win.lightmdSaveAs(), true);
+      assert.deepEqual(tabNames(rt), ["first.md"]);
+      assert.equal(activeTabName(rt), "first.md");
+      assert.equal(rt.win.lightmdEditor.editable, true);
+      assert.equal(rt.win.lightmdWorkspace.relative, "first.md");
+    } finally {
+      rt.cleanup();
+    }
+  });
+
+  test("saving a draft over a file open in another tab leaves one tab for it", async () => {
+    const rt = bootApp({ files: { "a.md": "old a\n" }, confirmResult: true });
+    try {
+      await rt.win.lightmdOpenFolder(rt.folderPath);
+      await rt.win.lightmdOpenFile("a.md");
+      await rt.win.lightmdNewNote();
+      type(rt, "new a\n");
+      assert.equal(await rt.win.lightmdSaveAs({ path: rt.folderPath, relative: "a.md" }), true);
+      assert.deepEqual(tabNames(rt), ["a.md"]);
+      assert.equal(rt.el("editor-buffer").value, "new a\n");
+      assert.equal(rt.files.get("a.md"), "new a\n");
+    } finally {
+      rt.cleanup();
+    }
+  });
+});
+
 describe("closing the active tab never shows or stores the wrong text", () => {
   test("[draft, a, b*] close b: the draft keeps its text", async () => {
     const rt = bootApp({ files: { "a.md": "AAA\n", "b.md": "BBB\n" } });
@@ -194,6 +227,29 @@ describe("racing opens settle on one tab and the last click", () => {
       assert.equal(rt.el("status-path").textContent, "fast.md");
       assert.equal(activeTabName(rt), "fast.md");
       assert.equal(new Set(tabNames(rt)).size, tabNames(rt).length, "no duplicate tabs");
+    } finally {
+      rt.cleanup();
+    }
+  });
+});
+
+describe("opening another folder drops opens still loading from the old one", () => {
+  test("a slow read that lands after Open Folder adds no tab", async () => {
+    const rt = bootApp({
+      files: { "slow.md": "# SLOW\n" },
+      workspaces: { "/other": { files: { "o.md": "o" } } },
+      onInvoke: async (cmd) => {
+        if (cmd === "read_workspace_file") await delay(30);
+      },
+    });
+    try {
+      await rt.win.lightmdOpenFolder(rt.folderPath);
+      const slow = rt.win.lightmdOpenFile("slow.md");
+      await delay(5);
+      await rt.win.lightmdOpenFolder("/other");
+      await slow;
+      assert.deepEqual(tabNames(rt), []);
+      assert.equal(rt.el("editor-buffer").value, "");
     } finally {
       rt.cleanup();
     }
