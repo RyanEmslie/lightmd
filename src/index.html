@@ -1634,15 +1634,10 @@
               path: root,
               relative,
             });
-            if (typeof exists === "boolean") return exists;
+            return exists !== false;
           } catch {
-            // command may be absent; fall through
-          }
-          try {
-            await tauri.core.invoke("read_workspace_file", { path: root, relative });
+            // Can't tell: ask rather than overwrite silently.
             return true;
-          } catch {
-            return false;
           }
         }
 
@@ -2152,7 +2147,17 @@
           await flushed;
         }
 
+        // Errors are shown in the status strip; resolves whether it saved.
         async function saveAs(spec) {
+          try {
+            return await saveAsTo(spec);
+          } catch {
+            showSaveError();
+            return false;
+          }
+        }
+
+        async function saveAsTo(spec) {
           const opts = saveAsSpec(spec) || {};
           const tauri = window.__TAURI__;
           if (!tauri || !tauri.core || typeof tauri.core.invoke !== "function") {
@@ -2213,8 +2218,7 @@
           const shown = tab === activeTab || !activeTab || existing === activeTab;
           tab.root = root;
           tab.relative = relative;
-          tab.contents = contents;
-          tab.dirty = false;
+          if (!shown) tab.contents = contents;
 
           // The explorer follows the saved file; other tabs keep their folders.
           if (!sameRoot(root, workspacePath)) {
@@ -2225,8 +2229,14 @@
             activeTab = tab;
             currentRelative = relative;
             showActivePath();
-            setDirty(false);
           }
+          // An edit typed during the write is still unsaved: autosave it next.
+          const unsaved = tabText(tab) !== contents;
+          setTabDirty(tab, unsaved);
+          if (unsaved && tab === activeTab && typeof window.lightmdScheduleAutoSave === "function") {
+            window.lightmdScheduleAutoSave();
+          }
+          clearSaveError();
           renderTabs();
           persistActiveTab();
           if (workspacePath) {
@@ -2241,22 +2251,16 @@
           return true;
         }
 
+        // A new note has no file yet, so Save asks where to save it.
         async function save() {
           const tab = activeTab;
-          if (!tab || tab.relative == null || tab.root == null) return;
+          if (!tab) return false;
+          if (tab.relative == null || tab.root == null) return saveAs();
           const tauri = window.__TAURI__;
           if (!tauri || !tauri.core || typeof tauri.core.invoke !== "function") {
-            return;
+            return false;
           }
-          const contents = buffer.value;
-          await tauri.core.invoke("write_workspace_file", {
-            path: tab.root,
-            relative: tab.relative,
-            contents,
-          });
-          if (tab === activeTab) setDirty(false);
-          else tab.dirty = false;
-          tab.contents = contents;
+          return saveTab(tab);
         }
 
         // Open file tabs (not the draft) with their current text.
@@ -2278,6 +2282,9 @@
         window.lightmdSave = save;
         window.lightmdSaveAs = saveAs;
         window.lightmdGetOpenBuffers = openBuffers;
+        // autosave.js calls this when its delay is up.
+        window.lightmdAutosaveWrite = () =>
+          activeTab && activeTab.dirty ? saveTab(activeTab) : Promise.resolve(false);
         window.newNote = newNote;
         window.saveAs = saveAs;
 

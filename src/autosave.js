@@ -17,7 +17,7 @@ function doc() {
   return typeof globalThis.document !== "undefined" ? globalThis.document : null;
 }
 
-function showSaveError() {
+export function showSaveError() {
   const d = doc();
   if (!d || typeof d.getElementById !== "function") return;
   const pathEl = d.getElementById("status-path");
@@ -42,7 +42,7 @@ function showSaveError() {
   }
 }
 
-function clearSaveError() {
+export function clearSaveError() {
   const d = doc();
   if (!d || typeof d.getElementById !== "function") return;
   const pathEl = d.getElementById("status-path");
@@ -87,6 +87,17 @@ export function scheduleAutoSave() {
   const seq = ++autosaveSeq;
   autosaveTimer = setTimeout(async () => {
     autosaveTimer = null;
+    // The app saves its active tab itself (window.lightmdAutosaveWrite in
+    // index.html), so the right tab is marked clean and errors are shown.
+    const writeActive = typeof window !== "undefined" ? window.lightmdAutosaveWrite : null;
+    if (typeof writeActive === "function") {
+      try {
+        await writeActive();
+      } catch {
+        showSaveError();
+      }
+      return;
+    }
     const tauri = typeof window !== "undefined" ? window.__TAURI__ : null;
     const ctx = typeof window !== "undefined" ? window.lightmdWorkspace : null;
     // root is the active document's folder; path the explorer's.
@@ -101,7 +112,8 @@ export function scheduleAutoSave() {
         contents,
       });
     } catch {
-      if (seq === autosaveSeq) showSaveError();
+      // Even if another save was scheduled since: this edit never reached disk.
+      showSaveError();
       return;
     }
     if (seq !== autosaveSeq) return;

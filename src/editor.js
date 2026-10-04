@@ -5,7 +5,13 @@ import { defaultKeymap, history, historyKeymap } from "@codemirror/commands";
 import { markdown, markdownLanguage } from "@codemirror/lang-markdown";
 import { openSearchPanel, searchKeymap } from "@codemirror/search";
 import { parseFrontmatter } from "./frontmatter.js";
-import { cancelAutosave, scheduleAutoSave } from "./autosave.js";
+import {
+  autosave,
+  cancelAutosave,
+  clearSaveError,
+  scheduleAutoSave,
+  showSaveError,
+} from "./autosave.js";
 import {
   findExtension,
   findOptions,
@@ -235,6 +241,11 @@ function showState(state, scroll) {
   applyFrontmatter(text);
   updateWordCount(text);
 }
+
+// index.html saves tabs itself and reads the autosave settings.
+window.lightmdAutosave = autosave;
+window.lightmdShowSaveError = showSaveError;
+window.lightmdClearSaveError = clearSaveError;
 
 // Shows `text` as a new document with no undo history.
 function setDoc(text) {
