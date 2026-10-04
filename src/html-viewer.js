@@ -4,6 +4,8 @@ export function isHtmlFile(relative) {
   return /\.(html|htm)$/i.test(base);
 }
 
+// Per file and in memory only: never saved, and off whenever another file (or
+// the same one after the viewer was hidden) is shown.
 export const htmlJs = {
   enabled: false,
 };
@@ -26,7 +28,18 @@ function withCsp(html) {
 }
 
 let lastHtml = "";
+let shownJs = false;
+let shownFile = null;
 let bound = false;
+
+function currentFile() {
+  try {
+    const ws = globalThis.lightmdWorkspace;
+    return ws ? `${ws.path ?? ""}\n${ws.relative ?? ""}` : "";
+  } catch {
+    return "";
+  }
+}
 
 function sandboxValue() {
   return htmlJs.enabled ? ALLOW_SCRIPTS : "";
@@ -39,16 +52,19 @@ function applySandbox(frame) {
 }
 
 function syncHtmlJsUi() {
-  const control = document.getElementById("html-js");
-  if (control && control.checked !== htmlJs.enabled) {
-    control.checked = htmlJs.enabled;
+  for (const id of ["html-js", "settings-html-js"]) {
+    const control = document.getElementById(id);
+    if (control && control.checked !== htmlJs.enabled) {
+      control.checked = htmlJs.enabled;
+    }
   }
   const warn = document.getElementById("html-js-warn");
   if (warn) warn.hidden = !htmlJs.enabled;
 }
 
-function reloadSrcdoc(frame) {
+function writeSrcdoc(frame) {
   frame.srcdoc = withCsp(lastHtml ?? "");
+  shownJs = htmlJs.enabled;
 }
 
 export function setHtmlJsEnabled(enabled) {
@@ -57,7 +73,8 @@ export function setHtmlJsEnabled(enabled) {
   const frame = document.getElementById("html-viewer");
   if (!frame) return;
   applySandbox(frame);
-  if (!frame.hidden) reloadSrcdoc(frame);
+  // The sandbox applies on the next load, so reload to start or stop scripts.
+  if (!frame.hidden) writeSrcdoc(frame);
 }
 
 function bindToggle() {
@@ -67,13 +84,6 @@ function bindToggle() {
   bound = true;
   control.addEventListener("change", () => {
     setHtmlJsEnabled(!!control.checked);
-    import("./session.js")
-      .then((m) => {
-        if (typeof m.persistSession === "function") {
-          m.persistSession({ htmlJs: !!control.checked });
-        }
-      })
-      .catch(() => {});
   });
 }
 
@@ -84,10 +94,13 @@ export function showHtmlViewer(html) {
   const previewBody = document.getElementById("preview-body");
   const chrome = document.getElementById("html-js-chrome");
   if (!frame) return;
-  const same = lastHtml === next && frame.hidden === false;
+  const file = currentFile();
+  if (frame.hidden || file !== shownFile) htmlJs.enabled = false;
+  shownFile = file;
+  const same = lastHtml === next && frame.hidden === false && shownJs === htmlJs.enabled;
   lastHtml = next;
   applySandbox(frame);
-  if (!same) frame.srcdoc = withCsp(lastHtml);
+  if (!same) writeSrcdoc(frame);
   frame.hidden = false;
   if (previewBody) previewBody.hidden = true;
   if (chrome) chrome.hidden = false;
@@ -107,6 +120,9 @@ export function hideHtmlViewer() {
   if (chrome) chrome.hidden = true;
   if (warn) warn.hidden = true;
   lastHtml = "";
+  htmlJs.enabled = false;
+  shownFile = null;
+  syncHtmlJsUi();
 }
 
 if (typeof document !== "undefined") {

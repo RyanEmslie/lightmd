@@ -6,7 +6,6 @@ export const session = {
   lastFolder: null,
   lastFile: null,
   theme: null,
-  htmlJs: false,
 };
 
 export const sessionRestore = true;
@@ -58,26 +57,6 @@ function confinedLastFile(folder, file) {
   return s;
 }
 
-function asBool(value) {
-  return typeof value === "boolean" ? value : undefined;
-}
-
-function htmlJsValue(value) {
-  const direct = asBool(value);
-  if (direct !== undefined) return direct;
-  if (value && typeof value === "object") {
-    return firstOf(
-      asBool(value.enabled),
-      asBool(value.on),
-      asBool(value.javascript),
-      asBool(value.js),
-      asBool(value.allowScripts),
-      asBool(value.htmlJs),
-    );
-  }
-  return undefined;
-}
-
 function firstOf(...values) {
   for (const value of values) {
     if (value !== undefined && value !== null) return value;
@@ -94,7 +73,6 @@ function payload() {
     folder: session.lastFolder,
     file: session.lastFile,
     theme: session.theme,
-    htmlJs: session.htmlJs,
   };
 }
 
@@ -117,8 +95,7 @@ function mergePartial(partial) {
     typeof partial.previewTheme === "string" ? partial.previewTheme : undefined,
   );
   if (typeof nextTheme === "string") session.theme = nextTheme;
-  const htmlJs = firstOf(htmlJsValue(partial.htmlJs), asBool(partial.htmlJsEnabled));
-  if (htmlJs !== undefined) session.htmlJs = htmlJs;
+  // HTML JavaScript is per file and in memory only (html-viewer.js): never saved.
 }
 
 function writeSession() {
@@ -177,10 +154,6 @@ function syncSessionControls() {
   if (settingsTheme && typeof session.theme === "string") {
     settingsTheme.value = session.theme;
   }
-  const htmlJsEl = d.getElementById("html-js");
-  if (htmlJsEl && typeof session.htmlJs === "boolean") {
-    htmlJsEl.checked = session.htmlJs;
-  }
 }
 
 function applyFileBody(body) {
@@ -204,14 +177,6 @@ async function applyThemeHelpers() {
     }
   } catch {
     // Node import / missing palettes
-  }
-  try {
-    const html = await import("./html-viewer.js");
-    if (typeof html.setHtmlJsEnabled === "function") {
-      html.setHtmlJsEnabled(!!session.htmlJs);
-    }
-  } catch {
-    // Node import / missing html-viewer
   }
 }
 
@@ -266,8 +231,7 @@ export function restoreSession(extra) {
   if (stored && typeof stored === "object") {
     const pickedTheme = pickThemeName(stored);
     if (pickedTheme) session.theme = pickedTheme;
-    const htmlJs = firstOf(htmlJsValue(stored.htmlJs), asBool(stored.htmlJsEnabled));
-    if (htmlJs !== undefined) session.htmlJs = htmlJs;
+    // Older versions saved htmlJs / htmlJsEnabled; they are ignored.
     if (typeof stored.restore === "boolean") session.restore = stored.restore;
     if ("defaultFolder" in stored) session.defaultFolder = stored.defaultFolder;
   }
@@ -298,12 +262,6 @@ function bindSessionControls() {
   if (themeSelect && typeof themeSelect.addEventListener === "function") {
     themeSelect.addEventListener("change", () => {
       persistSession({ theme: themeSelect.value });
-    });
-  }
-  const htmlJsEl = d.getElementById("html-js");
-  if (htmlJsEl && typeof htmlJsEl.addEventListener === "function") {
-    htmlJsEl.addEventListener("change", () => {
-      persistSession({ htmlJs: !!htmlJsEl.checked });
     });
   }
 }
