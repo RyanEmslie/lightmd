@@ -11,7 +11,7 @@ pub struct Entry {
 
 pub fn list(root: &Path) -> io::Result<Vec<Entry>> {
     let mut entries = Vec::new();
-    collect(root, root, &mut entries)?;
+    collect(root, fs::read_dir(root)?, &mut entries);
     Ok(entries)
 }
 
@@ -46,11 +46,14 @@ fn modified_time(root: &Path, relative: &str) -> std::time::SystemTime {
         .unwrap_or(std::time::UNIX_EPOCH)
 }
 
-fn collect(root: &Path, dir: &Path, entries: &mut Vec<Entry>) -> io::Result<()> {
-    for child in fs::read_dir(dir)? {
-        let child = child?;
+// Entries that cannot be read are skipped so one locked folder does not hide
+// the rest of the workspace.
+fn collect(root: &Path, children: fs::ReadDir, entries: &mut Vec<Entry>) {
+    for child in children.flatten() {
         let path = child.path();
-        let file_type = child.file_type()?;
+        let Ok(file_type) = child.file_type() else {
+            continue;
+        };
         let relative_path = path
             .strip_prefix(root)
             .unwrap_or(path.as_path())
@@ -58,11 +61,16 @@ fn collect(root: &Path, dir: &Path, entries: &mut Vec<Entry>) -> io::Result<()> 
             .replace('\\', "/");
 
         if file_type.is_dir() {
+            if child.file_name() == ".git" {
+                continue;
+            }
             entries.push(Entry {
                 relative_path,
                 is_dir: true,
             });
-            collect(root, &path, entries)?;
+            if let Ok(grandchildren) = fs::read_dir(&path) {
+                collect(root, grandchildren, entries);
+            }
         } else if file_type.is_file() && listed_file(&path) {
             entries.push(Entry {
                 relative_path,
@@ -70,7 +78,6 @@ fn collect(root: &Path, dir: &Path, entries: &mut Vec<Entry>) -> io::Result<()> 
             });
         }
     }
-    Ok(())
 }
 
 fn listed_file(path: &Path) -> bool {
