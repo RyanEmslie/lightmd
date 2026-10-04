@@ -1350,24 +1350,34 @@
         let currentRelative = null;
         let dirty = false;
         const tabStrip = document.getElementById("editor-tabs");
+        // Tabs: { id, root, relative, contents, dirty }. A file tab keeps the
+        // folder it was opened from (root); the untitled draft has root and
+        // relative null.
         let openTabs = [];
-        let activeRelative = null;
+        // The tab shown in the editor, or null when none is.
+        let activeTab = null;
+        let nextTabId = 1;
+        // Bumped by every open/switch, so a slow read can't take over the editor
+        // after the user has moved on.
+        let navigation = 0;
+        const pendingReads = new Map();
 
         function setDirty(value) {
-          dirty = value;
+          dirty = !!value;
           if (dirtyDot) dirtyDot.hidden = !dirty;
-          const tab = findTab(activeRelative);
-          if (tab) tab.dirty = value;
+          if (activeTab) activeTab.dirty = dirty;
           if (!value && typeof window.lightmdCancelAutosave === "function") {
             window.lightmdCancelAutosave();
           }
         }
 
         window.lightmdSetDirty = setDirty;
+        // path is the explorer's folder; root is the active document's folder.
         Object.defineProperty(window, "lightmdWorkspace", {
           get() {
             return {
               path: workspacePath,
+              root: tabRoot(activeTab),
               relative: currentRelative,
               contents: buffer.value,
             };
@@ -1443,8 +1453,10 @@
 
         function markActiveFile() {
           const rows = fileList.querySelectorAll('li[data-dir="false"]');
+          const shown =
+            activeTab && sameRoot(activeTab.root, workspacePath) ? currentRelative : null;
           for (const row of rows) {
-            const on = Boolean(currentRelative) && row.dataset.path === currentRelative;
+            const on = Boolean(shown) && row.dataset.path === shown;
             row.classList.toggle("selected", on);
             if (on) row.setAttribute("aria-selected", "true");
             else row.removeAttribute("aria-selected");
@@ -1645,9 +1657,48 @@
           return key == null || key === "";
         }
 
-        function findTab(key) {
-          const k = tabKey(key);
-          return openTabs.find((tab) => tabKey(tab.relative) === k);
+        function sameRoot(a, b) {
+          if (a == null || b == null) return false;
+          const norm = (p) => normalizeSlashes(p).replace(/\/+$/, "");
+          return norm(a) === norm(b);
+        }
+
+        // A file tab is its folder plus path; relative null finds the draft.
+        function findTab(root, relative) {
+          if (isUntitledKey(relative)) return openTabs.find((tab) => tab.relative == null);
+          return openTabs.find((tab) => tab.relative === relative && sameRoot(tab.root, root));
+        }
+
+        function tabById(id) {
+          return openTabs.find((tab) => String(tab.id) === String(id)) || null;
+        }
+
+        function makeTab(root, relative, contents) {
+          const untitled = isUntitledKey(relative);
+          return {
+            id: nextTabId++,
+            root: untitled ? null : root,
+            relative: untitled ? null : relative,
+            contents: contents == null ? "" : String(contents),
+            dirty: false,
+          };
+        }
+
+        // The folder a tab's document lives in (the draft uses the explorer's).
+        function tabRoot(tab) {
+          return tab && tab.root != null ? tab.root : workspacePath;
+        }
+
+        function emit(type, detail) {
+          if (typeof window.dispatchEvent !== "function" || typeof CustomEvent !== "function") {
+            return;
+          }
+          window.dispatchEvent(new CustomEvent(type, { detail }));
+        }
+
+        function setWorkspaceRoot(root) {
+          workspacePath = root;
+          emit("lightmd:workspace-changed", { root });
         }
 
         function fileNameOf(relative) {
@@ -1746,10 +1797,40 @@
         }
 
         function stashActive() {
-          const tab = findTab(activeRelative);
-          if (!tab) return;
-          tab.contents = buffer ? buffer.value : tab.contents;
-          tab.dirty = dirty;
+          if (!activeTab) return;
+          activeTab.contents = buffer ? buffer.value : activeTab.contents;
+          activeTab.dirty = dirty;
+        }
+
+        // Before another tab (or nothing) takes the editor.
+        function leaveActive() {
+          stashActive();
+        }
+
+        // Puts `tab` in the editor, or empties it for null. The caller has
+        // already stashed (or closed) the outgoing tab.
+        function showTab(tab) {
+          activeTab = tab || null;
+          currentRelative = activeTab ? activeTab.relative : null;
+          loadIntoEditor(activeTab ? activeTab.contents : "", activeTab);
+          setDirty(activeTab ? !!activeTab.dirty : false);
+          showActivePath();
+          markActiveFile();
+          renderTabs();
+          setEditorSession(!!activeTab);
+          if (!activeTab) {
+            clearPreview();
+            return;
+          }
+          emit("lightmd:document-loaded", { root: tabRoot(activeTab), relative: currentRelative });
+        }
+
+        // The session remembers files of the explorer's folder only.
+        function persistActiveTab() {
+          const tab = activeTab;
+          persistOpenFile(
+            tab && tab.relative != null && sameRoot(tab.root, workspacePath) ? tab.relative : null,
+          );
         }
 
         function renderTabs() {
@@ -1766,10 +1847,14 @@
           const el = document.createElement("button");
           el.type = "button";
           el.setAttribute("role", "tab");
-          el.setAttribute("aria-selected", tabKey(activeRelative) === key ? "true" : "false");
+          el.setAttribute("aria-selected", tab === activeTab ? "true" : "false");
+          el.dataset.tabId = String(tab.id);
           el.dataset.relative = key;
           el.dataset.path = key;
-          el.title = key || name;
+          el.title =
+            tab.relative != null && !sameRoot(tab.root, workspacePath)
+              ? `${String(tab.root).replace(/[/\\]+$/, "")}/${key}`
+              : key || name;
           el.appendChild(fileTypeIcon(key));
           const label = document.createElement("span");
           label.className = "tab-name";
@@ -1785,122 +1870,84 @@
           return el;
         }
 
-        function activateTab(relative) {
-          const tab = findTab(relative);
-          if (!tab) return;
-          const key = tabKey(tab.relative);
-          if (tabKey(activeRelative) === key) {
-            currentRelative = isUntitledKey(key) ? null : tab.relative;
+        function activateTab(tab) {
+          if (!tab || !openTabs.includes(tab)) return;
+          navigation += 1;
+          if (tab === activeTab) {
             showActivePath();
             markActiveFile();
             renderTabs();
             return;
           }
-          stashActive();
-          activeRelative = key;
-          currentRelative = isUntitledKey(key) ? null : tab.relative;
-          loadIntoEditor(tab.contents ?? "", tab);
-          setDirty(!!tab.dirty);
-          showActivePath();
-          markActiveFile();
-          renderTabs();
-          persistOpenFile(currentRelative);
-          setEditorSession(true);
+          leaveActive();
+          showTab(tab);
+          persistActiveTab();
         }
 
-        function closeTab(relative) {
-          const key = tabKey(relative);
-          const i = openTabs.findIndex((tab) => tabKey(tab.relative) === key);
+        function closeTab(tab) {
+          const i = openTabs.indexOf(tab);
           if (i < 0) return;
-          const wasActive = tabKey(activeRelative) === key;
           openTabs.splice(i, 1);
-          if (!wasActive) {
+          if (tab !== activeTab) {
             renderTabs();
             return;
           }
-          if (openTabs.length === 0) {
-            activeRelative = null;
-            currentRelative = null;
-            loadIntoEditor("");
-            setDirty(false);
-            showActivePath();
-            markActiveFile();
-            renderTabs();
-            persistOpenFile(null);
-            clearPreview();
-            setEditorSession(false);
-            return;
-          }
-          const next = openTabs[Math.min(i, openTabs.length - 1)];
-          activeRelative = null;
-          activateTab(next.relative);
-        }
-
-        function bindActiveTab(relative, contents) {
-          const prev = findTab(activeRelative);
-          const key = tabKey(relative);
-          const dup = openTabs.find((tab) => tab !== prev && tabKey(tab.relative) === key);
-          if (dup) {
-            if (prev) openTabs = openTabs.filter((tab) => tab !== prev);
-            dup.contents = contents;
-            dup.dirty = false;
-            activeRelative = dup.relative;
-          } else if (prev) {
-            prev.relative = key;
-            prev.contents = contents;
-            prev.dirty = false;
-            activeRelative = key;
-          } else {
-            openTabs.push({ relative: key, dirty: false, contents });
-            activeRelative = key;
-          }
-          renderTabs();
+          // The closed tab is gone: nothing to stash, and the next tab always loads.
+          navigation += 1;
+          activeTab = null;
+          showTab(openTabs.length ? openTabs[Math.min(i, openTabs.length - 1)] : null);
+          persistActiveTab();
         }
 
         async function applyFolder(path) {
           if (typeof window.lightmdCancelAutosave === "function") {
             window.lightmdCancelAutosave();
           }
+          navigation += 1;
           openTabs = [];
-          activeRelative = null;
-          currentRelative = null;
-          if (statusPath) statusPath.textContent = "";
-          if (buffer) buffer.value = "";
-          if (window.lightmdEditor && typeof window.lightmdEditor.setDoc === "function") {
-            window.lightmdEditor.setDoc("");
-          }
-          setDirty(false);
-          setEditorSession(false);
-          workspacePath = path;
+          activeTab = null;
+          showTab(null);
+          setWorkspaceRoot(path);
           persistOpenFolder(path);
           renderTabs();
           await loadWorkspace(path);
         }
 
+        // One read per file at a time, however often it is clicked.
+        function readDocument(root, relative) {
+          const key = `${root}\n${relative}`;
+          let pending = pendingReads.get(key);
+          if (!pending) {
+            pending = window.__TAURI__.core
+              .invoke("read_workspace_file", { path: root, relative })
+              .finally(() => pendingReads.delete(key));
+            pendingReads.set(key, pending);
+          }
+          return pending;
+        }
+
         async function applyFile(relative) {
           if (!workspacePath) return;
-          if (findTab(relative)) {
-            activateTab(relative);
+          const root = workspacePath;
+          const request = ++navigation;
+          const open = findTab(root, relative);
+          if (open) {
+            activateTab(open);
             return;
           }
-          if (typeof window.lightmdCancelAutosave === "function") {
-            window.lightmdCancelAutosave();
+          const body = await readDocument(root, relative);
+          let tab = findTab(root, relative);
+          if (!tab) {
+            tab = makeTab(root, relative, body);
+            openTabs.push(tab);
           }
-          const body = await window.__TAURI__.core.invoke("read_workspace_file", {
-            path: workspacePath,
-            relative,
-          });
-          stashActive();
-          const opened = { relative, dirty: false, contents: body };
-          openTabs.push(opened);
-          activeRelative = relative;
-          currentRelative = relative;
-          if (statusPath) statusPath.textContent = currentRelative;
-          markActiveFile();
-          loadIntoEditor(body, opened);
-          setDirty(false);
-          renderTabs();
-          setEditorSession(true);
+          // A later click won while this file was loading: open it behind.
+          if (request !== navigation || tab === activeTab) {
+            renderTabs();
+            return;
+          }
+          leaveActive();
+          showTab(tab);
         }
 
         function askName(title, initial = "") {
@@ -1987,33 +2034,20 @@
         }
 
         async function newNote() {
-          // Bound dirty: start a blank session (discards). Unbound dirty: confirm first.
-          if (dirty && !currentRelative) {
+          // A new note replaces the draft tab: confirm before blanking its text.
+          const draft = findTab(null, null);
+          if (draft && draft === activeTab && dirty) {
             const ok = await askConfirm("Discard unsaved changes?");
             if (!ok) return;
           }
-          stashActive();
-          let tab = findTab("");
-          if (!tab) {
-            tab = { relative: "", dirty: false, contents: "" };
-            openTabs.push(tab);
-          } else {
-            tab.contents = "";
-            tab.dirty = false;
-          }
-          if (typeof window.lightmdCancelAutosave === "function") {
-            window.lightmdCancelAutosave();
-          }
-          activeRelative = "";
-          currentRelative = null;
-          if (statusPath) statusPath.textContent = "";
-          loadIntoEditor("");
+          navigation += 1;
+          leaveActive();
+          const tab = makeTab(null, null, "");
+          if (draft && openTabs.includes(draft)) openTabs[openTabs.indexOf(draft)] = tab;
+          else openTabs.push(tab);
+          showTab(tab);
           clearPreview();
-          setDirty(false);
-          markActiveFile();
-          renderTabs();
           persistOpenFile(null);
-          setEditorSession(true);
         }
 
         async function saveAs(spec) {
@@ -2022,6 +2056,7 @@
           if (!tauri || !tauri.core || typeof tauri.core.invoke !== "function") {
             return false;
           }
+          const source = activeTab;
 
           let root = opts.path ?? opts.root ?? workspacePath;
           let relative = opts.relative ?? opts.filename;
@@ -2048,7 +2083,9 @@
             throw new Error("path is outside workspace root");
           }
 
-          const contents = opts.contents != null ? String(opts.contents) : buffer.value;
+          let contents = buffer.value;
+          if (opts.contents != null) contents = String(opts.contents);
+          else if (source && source !== activeTab) contents = source.contents;
           if (await workspaceHasFile(root, relative)) {
             const ok = await askConfirm(`Overwrite ${relative}?`);
             if (!ok) return false;
@@ -2060,15 +2097,36 @@
             contents,
           });
 
-          if (root && workspacePath !== root) {
-            workspacePath = root;
+          // The saved tab now is that file; a tab already showing it gives way.
+          let tab = source && openTabs.includes(source) ? source : null;
+          const existing = findTab(root, relative);
+          if (existing && existing !== tab) {
+            if (tab) openTabs.splice(openTabs.indexOf(existing), 1);
+            else tab = existing;
+          }
+          if (!tab) {
+            tab = makeTab(root, relative, contents);
+            openTabs.push(tab);
+          }
+          const shown = tab === activeTab || !activeTab || existing === activeTab;
+          tab.root = root;
+          tab.relative = relative;
+          tab.contents = contents;
+          tab.dirty = false;
+
+          // The explorer follows the saved file; other tabs keep their folders.
+          if (!sameRoot(root, workspacePath)) {
+            setWorkspaceRoot(root);
             persistOpenFolder(root);
           }
-          currentRelative = relative;
-          if (statusPath) statusPath.textContent = currentRelative;
-          setDirty(false);
-          bindActiveTab(relative, contents);
-          persistOpenFile(currentRelative);
+          if (shown) {
+            activeTab = tab;
+            currentRelative = relative;
+            showActivePath();
+            setDirty(false);
+          }
+          renderTabs();
+          persistActiveTab();
           if (workspacePath) {
             try {
               await loadWorkspace(workspacePath);
@@ -2082,19 +2140,33 @@
         }
 
         async function save() {
-          if (!workspacePath || !currentRelative) return;
+          const tab = activeTab;
+          if (!tab || tab.relative == null || tab.root == null) return;
           const tauri = window.__TAURI__;
           if (!tauri || !tauri.core || typeof tauri.core.invoke !== "function") {
             return;
           }
+          const contents = buffer.value;
           await tauri.core.invoke("write_workspace_file", {
-            path: workspacePath,
-            relative: currentRelative,
-            contents: buffer.value,
+            path: tab.root,
+            relative: tab.relative,
+            contents,
           });
-          setDirty(false);
-          const tab = findTab(currentRelative);
-          if (tab) tab.contents = buffer.value;
+          if (tab === activeTab) setDirty(false);
+          else tab.dirty = false;
+          tab.contents = contents;
+        }
+
+        // Open file tabs (not the draft) with their current text.
+        function openBuffers() {
+          return openTabs
+            .filter((tab) => tab.relative != null)
+            .map((tab) => ({
+              root: tab.root,
+              relative: tab.relative,
+              contents: tab === activeTab && buffer ? buffer.value : tab.contents,
+              dirty: tab === activeTab ? dirty : !!tab.dirty,
+            }));
         }
 
         window.lightmdOpenFolder = applyFolder;
@@ -2103,6 +2175,7 @@
         window.lightmdNewFolder = newFolder;
         window.lightmdSave = save;
         window.lightmdSaveAs = saveAs;
+        window.lightmdGetOpenBuffers = openBuffers;
         window.newNote = newNote;
         window.saveAs = saveAs;
 
@@ -2129,17 +2202,17 @@
             if (!tab || (typeof tabStrip.contains === "function" && !tabStrip.contains(tab))) {
               return;
             }
-            const rel =
-              tab.dataset && tab.dataset.relative != null
-                ? tab.dataset.relative
-                : tab.getAttribute("data-relative") || "";
+            const clicked = tabById(
+              tab.dataset && tab.dataset.tabId != null
+                ? tab.dataset.tabId
+                : tab.getAttribute("data-tab-id"),
+            );
             if (close) {
               if (typeof event.preventDefault === "function") event.preventDefault();
               if (typeof event.stopPropagation === "function") event.stopPropagation();
-              closeTab(rel);
-              return;
+              return closeTab(clicked);
             }
-            activateTab(rel);
+            return activateTab(clicked);
           });
         }
 

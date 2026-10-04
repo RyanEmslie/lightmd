@@ -89,8 +89,9 @@ export function scheduleAutoSave() {
     autosaveTimer = null;
     const tauri = typeof window !== "undefined" ? window.__TAURI__ : null;
     const ctx = typeof window !== "undefined" ? window.lightmdWorkspace : null;
-    if (!tauri || !ctx || !ctx.path || !ctx.relative) return;
-    const path = ctx.path;
+    // root is the active document's folder; path the explorer's.
+    const path = ctx && (ctx.root || ctx.path);
+    if (!tauri || !path || !ctx.relative) return;
     const relative = ctx.relative;
     const contents = ctx.contents;
     try {
