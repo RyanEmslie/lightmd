@@ -210,6 +210,29 @@ async function restoreWorkspace() {
   }
 }
 
+// A folder or file named on the command line (`lightmd notes/`) opens instead
+// of the last session. Returns true when it did.
+async function openLaunchTarget() {
+  const invoke = tauriInvoke();
+  if (!invoke || typeof globalThis.lightmdOpenFolder !== "function") return false;
+  let target = null;
+  try {
+    target = await invoke("take_launch_target");
+  } catch {
+    return false;
+  }
+  if (!target || typeof target.root !== "string") return false;
+  try {
+    await globalThis.lightmdOpenFolder(target.root);
+    if (target.relative && typeof globalThis.lightmdOpenFile === "function") {
+      await globalThis.lightmdOpenFile(target.relative);
+    }
+  } catch (err) {
+    console.error("LightMD: could not open", target, err);
+  }
+  return true;
+}
+
 export function restoreSession(extra) {
   const ls = storage();
   const raw = ls && typeof ls.getItem === "function" ? ls.getItem(STORAGE_KEY) : null;
@@ -245,7 +268,8 @@ export function restoreSession(extra) {
   syncSessionControls();
   return Promise.resolve()
     .then(() => applyThemeHelpers())
-    .then(() => (session.restore ? restoreWorkspace() : session))
+    .then(() => openLaunchTarget())
+    .then((launched) => (!launched && session.restore ? restoreWorkspace() : session))
     .then(() => session)
     .catch(() => session);
 }

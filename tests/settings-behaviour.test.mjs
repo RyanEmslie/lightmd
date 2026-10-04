@@ -119,6 +119,7 @@ const SAVED = {
   softTabs: false,
   frontmatter: false,
   livePreview: false,
+  syncScroll: false,
   autosave: false,
   autosaveDelay: 3000,
   findCaseSensitive: true,
@@ -157,7 +158,7 @@ test("saved settings are applied when settings.js loads, before the editor mount
     },
     "editorDefaults feed the editor's initial extensions",
   );
-  assert.deepEqual({ ...mod.previewDefaults }, { fontSize: 19, lineHeight: 1.9 });
+  assert.deepEqual({ ...mod.previewDefaults }, { fontSize: 19, lineHeight: 1.9, syncScroll: false });
   assert.deepEqual({ ...autosave }, { enabled: false, delay: 3000 });
   assert.equal(preview.live, false);
   assert.deepEqual({ ...findOptions }, { caseSensitive: true, wholeWord: true });
@@ -199,7 +200,7 @@ for (const [name, value] of [
     assert.equal(mod.editorDefaults.tabSize, 4);
     assert.equal(mod.editorDefaults.lineWrapping, true);
     assert.equal(mod.editorDefaults.lineNumbers, false);
-    assert.deepEqual({ ...mod.previewDefaults }, { fontSize: 16, lineHeight: 1.55 });
+    assert.deepEqual({ ...mod.previewDefaults }, { fontSize: 16, lineHeight: 1.55, syncScroll: true });
     assert.deepEqual({ ...autosave }, { enabled: true, delay: 1000 });
     assert.equal(findOptions.caseSensitive, false);
     assert.equal(doc.getElementById("show-extensions").checked, true);

@@ -69,6 +69,40 @@ md.core.ruler.push("heading_ids", (state) => {
   }
 });
 
+// Block elements carry the source line they start on (data-line, 0-based in
+// the whole file: env.lineOffset counts the frontmatter lines above the body),
+// so the outline and scroll sync can map preview positions to editor lines.
+md.core.ruler.push("source_lines", (state) => {
+  const offset = (state.env && state.env.lineOffset) || 0;
+  for (const token of state.tokens) {
+    if (token.map && token.nesting >= 0 && token.level === 0) {
+      token.attrSet("data-line", String(token.map[0] + offset));
+    }
+  }
+});
+
+// The headings of a markdown body: { level, text, id, line } in document order,
+// with the same ids the rendered preview gives them.
+export function outlineFromMarkdown(markdown, lineOffset = 0) {
+  const tokens = md.parse(markdown ?? "", { lineOffset });
+  const out = [];
+  for (let i = 0; i < tokens.length; i++) {
+    const t = tokens[i];
+    if (t.type !== "heading_open") continue;
+    out.push({
+      level: Number(t.tag.slice(1)),
+      text: (tokens[i + 1]?.children || [])
+        .filter((c) => c.type === "text" || c.type === "code_inline")
+        .map((c) => c.content)
+        .join("")
+        .trim(),
+      id: t.attrGet("id"),
+      line: (t.map ? t.map[0] : 0) + lineOffset,
+    });
+  }
+  return out;
+}
+
 // Default live on; set live: false to update the preview only on save.
 export const preview = {
   live: true,
@@ -264,8 +298,8 @@ export async function rewritePreviewImages(root, workspace, fileRelative) {
   );
 }
 
-export function renderPreview(markdown) {
-  return md.render(markdown ?? "");
+export function renderPreview(markdown, lineOffset = 0) {
+  return md.render(markdown ?? "", { lineOffset });
 }
 
 function isHttpHref(href) {

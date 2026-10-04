@@ -30,6 +30,7 @@ export const editorDefaults = {
 export const previewDefaults = {
   fontSize: 16,
   lineHeight: 1.55,
+  syncScroll: true,
 };
 
 export const defaults = {
@@ -78,6 +79,7 @@ const PERSISTED = [
   ["softTabs", editorDefaults, "softTabs", isBoolean],
   ["frontmatter", editorDefaults, "frontmatter", isBoolean],
   ["livePreview", preview, "live", isBoolean],
+  ["syncScroll", previewDefaults, "syncScroll", isBoolean],
   ["autosave", autosave, "enabled", isBoolean],
   ["autosaveDelay", autosave, "delay", numberIn(1, 3600000)],
   ["findCaseSensitive", findOptions, "caseSensitive", isBoolean],
@@ -281,6 +283,8 @@ function syncFromState() {
   if (findWhole) findWhole.checked = !!findOptions.wholeWord;
   const live = d.getElementById("settings-live-preview");
   if (live) live.checked = !!preview.live;
+  const syncScroll = d.getElementById("settings-sync-scroll");
+  if (syncScroll) syncScroll.checked = !!previewDefaults.syncScroll;
   const frontmatter = d.getElementById("settings-frontmatter");
   if (frontmatter) frontmatter.checked = !!editorDefaults.frontmatter;
   const gfm = d.getElementById("settings-gfm");
@@ -431,6 +435,9 @@ export function bindSettings() {
     preview.live = !!event.target.checked;
     // Edits made while it was off are not in the preview yet.
     if (preview.live) editorApi()?.refreshPreview?.();
+  });
+  on(d.getElementById("settings-sync-scroll"), "change", (event) => {
+    previewDefaults.syncScroll = !!event.target.checked;
   });
   on(d.getElementById("settings-frontmatter"), "change", (event) => {
     editorApi()?.setShowFrontmatter?.(!!event.target.checked);

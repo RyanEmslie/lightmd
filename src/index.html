@@ -154,6 +154,119 @@
         padding: 8px 12px;
       }
 
+      #explorer-toolbar {
+        position: relative;
+      }
+
+      #recent-folders {
+        margin-left: -6px;
+        padding: 0 2px;
+      }
+
+      #recent-menu,
+      #recent-empty-list,
+      #outline-list {
+        list-style: none;
+        margin: 0;
+        padding: 0;
+      }
+
+      #recent-menu {
+        position: absolute;
+        top: calc(100% - 4px);
+        left: 12px;
+        right: 12px;
+        z-index: 10;
+        max-height: 320px;
+        overflow: auto;
+        padding: 4px;
+        background: var(--bg-elevated);
+        border: 1px solid var(--border);
+      }
+
+      #recent-menu[hidden],
+      #recent-empty[hidden],
+      #outline[hidden] {
+        display: none;
+      }
+
+      #recent-menu button,
+      #recent-empty-list button {
+        display: flex;
+        flex-direction: column;
+        align-items: flex-start;
+        width: 100%;
+        padding: 4px 8px;
+        text-align: left;
+        border-color: transparent;
+        background: transparent;
+      }
+
+      #recent-menu button:hover,
+      #recent-empty-list button:hover {
+        background: var(--bg);
+      }
+
+      #recent-menu small,
+      #recent-empty-list small {
+        max-width: 100%;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        color: var(--fg-muted);
+      }
+
+      #recent-menu .recent-none {
+        padding: 4px 8px;
+        color: var(--fg-muted);
+      }
+
+      #recent-empty {
+        flex: none;
+        margin: 8px 12px 0;
+      }
+
+      #recent-empty > p,
+      #outline > summary {
+        margin: 0 0 4px;
+        color: var(--fg-muted);
+      }
+
+      #outline {
+        flex: none;
+        max-height: 35%;
+        overflow: auto;
+        margin: 0;
+        padding: 8px 12px;
+        border-top: 1px solid var(--border);
+      }
+
+      #outline > summary {
+        cursor: pointer;
+      }
+
+      #outline-list button {
+        display: block;
+        width: 100%;
+        padding: 2px 8px;
+        overflow: hidden;
+        text-align: left;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        border-color: transparent;
+        background: transparent;
+      }
+
+      #outline-list button:hover {
+        background: var(--bg-elevated);
+      }
+
+      #outline-list button[data-level="2"] { padding-left: 20px; }
+      #outline-list button[data-level="3"] { padding-left: 32px; }
+      #outline-list button[data-level="4"],
+      #outline-list button[data-level="5"],
+      #outline-list button[data-level="6"] { padding-left: 44px; color: var(--fg-muted); }
+
       #name-dialog {
         display: flex;
         flex-wrap: wrap;
@@ -1169,6 +1282,7 @@
               <div class="settings-panel-heading"><div><h3>Preview behavior</h3><p>Control rendered Markdown and HTML behavior.</p></div></div>
               <div class="settings-grid">
                 <label class="settings-toggle"><input type="checkbox" id="settings-live-preview" checked /><span><strong>Live preview</strong><small>Update the preview while you type.</small></span></label>
+                <label class="settings-toggle"><input type="checkbox" id="settings-sync-scroll" checked /><span><strong>Sync scroll</strong><small>Keep the editor and preview on the same part of the document.</small></span></label>
                 <label class="settings-toggle"><input type="checkbox" id="settings-frontmatter" checked /><span><strong>Frontmatter metadata</strong><small>Show parsed metadata above the document.</small></span></label>
                 <label class="settings-toggle"><input type="checkbox" id="settings-gfm" checked disabled /><span><strong>GFM extras</strong><small>Tables, tasks, strikethrough, and fenced code.</small></span></label>
                 <label class="settings-toggle"><input type="checkbox" id="settings-html-js" /><span><strong>HTML JavaScript</strong><small>Enable scripts in sandboxed HTML previews.</small></span></label>
@@ -1303,6 +1417,18 @@
           </button>
           <button
             type="button"
+            id="recent-folders"
+            aria-label="Recent folders"
+            title="Recent folders"
+            aria-haspopup="menu"
+            aria-expanded="false"
+          >
+            <svg viewBox="0 0 16 16" width="10" height="16" aria-hidden="true" focusable="false">
+              <path fill="none" stroke="currentColor" stroke-width="1.25" d="M4 6.5l4 4 4-4" />
+            </svg>
+          </button>
+          <button
+            type="button"
             id="new-note"
             aria-label="New Note"
             title="New Note"
@@ -1344,13 +1470,22 @@
             </svg>
           </button>
         </div>
+        <ul id="recent-menu" aria-label="Recent folders" hidden></ul>
         <div id="name-dialog" hidden>
           <label for="name-dialog-input" id="name-dialog-title">Folder name</label>
           <input id="name-dialog-input" type="text" autocomplete="off" />
           <button type="button" id="name-dialog-ok">Create</button>
           <button type="button" id="name-dialog-cancel">Cancel</button>
         </div>
+        <div id="recent-empty" hidden>
+          <p>Recent folders</p>
+          <ul id="recent-empty-list"></ul>
+        </div>
         <ul id="file-list"></ul>
+        <details id="outline" open hidden>
+          <summary>Outline</summary>
+          <ul id="outline-list"></ul>
+        </details>
         <div id="find-workspace">
           <div id="find-workspace-bar">
             <input
@@ -2033,6 +2168,50 @@
             // gone or unreadable: keep what is shown
           }
         }
+
+        // Live reload: a clean open file follows changes another program makes
+        // (git checkout, another editor). The check waits behind the tab's
+        // saves so our own writes never look like outside changes; an edited
+        // tab is left alone, and its next save asks about the conflict.
+        function followDiskChange(tab) {
+          if (!tab || tab.relative == null || tab.root == null || tab.modifiedMs == null) {
+            return Promise.resolve();
+          }
+          const run = (tab.saving || Promise.resolve()).then(async () => {
+            if (tab.dirty || !openTabs.includes(tab)) return false;
+            const stat = await window.__TAURI__.core.invoke("stat_workspace_file", {
+              path: tab.root,
+              relative: tab.relative,
+            });
+            if (!stat || stat.modified_ms === tab.modifiedMs) return false;
+            const doc = await readDocument(tab.root, tab.relative);
+            if (tab.dirty || !openTabs.includes(tab)) return false;
+            if (withLineEnding(doc.contents) === withLineEnding(tab.contents)) {
+              tab.modifiedMs = doc.modifiedMs; // touched, not changed: keep cursor and undo
+              return false;
+            }
+            setTabDocument(tab, doc);
+            if (tab === activeTab) {
+              loadIntoEditor(tab.contents, tab);
+              setDirty(false);
+              emit("lightmd:document-loaded", { root: tabRoot(tab), relative: tab.relative });
+            }
+            return false;
+          });
+          tab.saving = run.catch(() => false);
+          return tab.saving;
+        }
+
+        const LIVE_RELOAD_MS = 3000;
+        function followDiskChanges() {
+          return Promise.all(openTabs.map((tab) => followDiskChange(tab)));
+        }
+        window.addEventListener("focus", () => void followDiskChanges());
+        const liveReloadTimer = setInterval(() => {
+          if (document.visibilityState === "visible") void followDiskChanges();
+        }, LIVE_RELOAD_MS);
+        // Node test hosts: don't keep the process alive for this timer.
+        if (liveReloadTimer && typeof liveReloadTimer.unref === "function") liveReloadTimer.unref();
 
         // Before another tab (or nothing) takes the editor: keep its text, and
         // start saving the edit autosave was waiting to save. Returns that save.

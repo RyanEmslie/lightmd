@@ -26,6 +26,7 @@
 //                  dialog.*, opener.* and getCurrentWindow().setSize() all hit it.
 //                  Plugin calls are gated by src-tauri/capabilities like Tauri's
 //                  ACL; see app.backend.rejections, .dialogs, .opened, .windowCalls.
+//   launchTarget   { root, relative } that `lightmd <path>` hands over at startup
 //   dialog         { open, save, confirm } answers; change them later on app.dialog
 //   autosaveDelay  ms, typed into Settings > Editor > Delay after boot
 //   storage        { key: value } put in localStorage before the first load
@@ -133,6 +134,7 @@ export async function launchApp(options = {}) {
     workspaces: options.workspaces,
     dialog: { open: root, ...(options.dialog || {}) },
     onInvoke: options.onInvoke,
+    launchTarget: options.launchTarget,
     ...(options.capabilities !== undefined ? { capabilities: options.capabilities } : {}),
   });
   const storage = Object.fromEntries(

@@ -464,6 +464,49 @@ async fn read_workspace_image(
         .map(tauri::ipc::Response::new)
 }
 
+/// The folder or file named on the command line: `lightmd notes/` opens the
+/// folder, `lightmd README.md` opens the file's folder and then the file.
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize)]
+pub struct LaunchTarget {
+    pub root: String,
+    pub relative: Option<String>,
+}
+
+/// Reads the first non-flag argument after the program name. Flags (and the
+/// `-psn_…` argument macOS adds when Finder launches an app) are skipped.
+pub fn launch_target(
+    args: impl IntoIterator<Item = String>,
+    cwd: &Path,
+) -> Option<LaunchTarget> {
+    let arg = args.into_iter().skip(1).find(|a| !a.starts_with('-'))?;
+    let path = cwd.join(arg).canonicalize().ok()?;
+    if path.is_dir() {
+        return Some(LaunchTarget {
+            root: path.to_string_lossy().into_owned(),
+            relative: None,
+        });
+    }
+    let parent = path.parent()?;
+    let relative = if path.is_file() && listed_file(&path) {
+        path.file_name()
+            .map(|name| name.to_string_lossy().into_owned())
+    } else {
+        None
+    };
+    Some(LaunchTarget {
+        root: parent.to_string_lossy().into_owned(),
+        relative,
+    })
+}
+
+struct PendingLaunch(std::sync::Mutex<Option<LaunchTarget>>);
+
+/// Hands the command-line target to the frontend once; later calls get None.
+#[tauri::command]
+fn take_launch_target(state: tauri::State<'_, PendingLaunch>) -> Option<LaunchTarget> {
+    state.0.lock().ok().and_then(|mut target| target.take())
+}
+
 fn invoke_handler<R: tauri::Runtime>(
 ) -> impl Fn(tauri::ipc::Invoke<R>) -> bool + Send + Sync + 'static {
     tauri::generate_handler![
@@ -473,7 +516,8 @@ fn invoke_handler<R: tauri::Runtime>(
         stat_workspace_file,
         workspace_file_exists,
         read_workspace_image,
-        create_workspace_folder
+        create_workspace_folder,
+        take_launch_target
     ]
 }
 
@@ -517,7 +561,10 @@ fn navigation_guard<R: tauri::Runtime>() -> tauri::plugin::TauriPlugin<R> {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    let cwd = std::env::current_dir().unwrap_or_default();
+    let launch = launch_target(std::env::args(), &cwd);
     tauri::Builder::default()
+        .manage(PendingLaunch(std::sync::Mutex::new(launch)))
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
         .plugin(navigation_guard())
@@ -535,7 +582,7 @@ mod tests {
     use super::sort_by_name;
     use super::write_file;
     use std::collections::HashSet;
-    use std::path::PathBuf;
+    use std::path::{Path, PathBuf};
     use std::time::{Duration, SystemTime};
 
     fn workspace_fixture() -> PathBuf {
@@ -1328,6 +1375,53 @@ mod tests {
             read_image(&root, "big.png").is_err(),
             "read_image must be Err for an image over 20 MB"
         );
+    }
+
+    fn args(list: &[&str]) -> Vec<String> {
+        std::iter::once("lightmd")
+            .chain(list.iter().copied())
+            .map(String::from)
+            .collect()
+    }
+
+    #[test]
+    fn launch_target_opens_a_folder_argument() {
+        let (root, _cleanup) = temp_workspace("launch-dir");
+        let canon = root.canonicalize().unwrap();
+        let target = super::launch_target(args(&[root.to_str().unwrap()]), Path::new("/"));
+        assert_eq!(
+            target,
+            Some(super::LaunchTarget {
+                root: canon.to_string_lossy().into_owned(),
+                relative: None
+            })
+        );
+    }
+
+    #[test]
+    fn launch_target_opens_a_markdown_file_in_its_folder_relative_to_cwd() {
+        let (root, _cleanup) = temp_workspace("launch-file");
+        std::fs::write(root.join("note.md"), "# hi\n").unwrap();
+        let canon = root.canonicalize().unwrap();
+        let target = super::launch_target(args(&["-psn_0_123", "note.md"]), &root);
+        assert_eq!(
+            target,
+            Some(super::LaunchTarget {
+                root: canon.to_string_lossy().into_owned(),
+                relative: Some("note.md".into())
+            })
+        );
+    }
+
+    #[test]
+    fn launch_target_opens_only_the_folder_for_other_files_and_ignores_missing_paths() {
+        let (root, _cleanup) = temp_workspace("launch-other");
+        std::fs::write(root.join("notes.txt"), "x").unwrap();
+        let target = super::launch_target(args(&["notes.txt"]), &root).expect("folder");
+        assert_eq!(target.relative, None);
+        assert_eq!(super::launch_target(args(&["missing.md"]), &root), None);
+        assert_eq!(super::launch_target(args(&[]), &root), None);
+        assert_eq!(super::launch_target(args(&["--verbose"]), &root), None);
     }
 
     type MockWebview = tauri::WebviewWindow<tauri::test::MockRuntime>;

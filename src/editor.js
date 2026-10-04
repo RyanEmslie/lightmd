@@ -30,6 +30,8 @@ import {
   invalidatePreviewImages,
 } from "./preview.js";
 import { isHtmlFile, showHtmlViewer, hideHtmlViewer } from "./html-viewer.js";
+import { bindOutlineAndScrollSync, updateOutline } from "./outline.js";
+import { bindRecentFolders, refreshEmptyState } from "./recent.js";
 import { applyTheme, setTheme } from "./palettes.js";
 import "./layout.js";
 import { persistSession, restoreSession } from "./session.js";
@@ -67,7 +69,7 @@ let renderTimer = null;
 let renderPending = false;
 let renderPendingPreview = false;
 let shownPreview = null; // { kind, root, dir, text, first } on screen now
-let deferredPreview = null; // content for the hidden preview pane
+let deferredPreview = null; // { content, lineOffset } for the hidden preview pane
 
 function scheduleRender(updatePreview) {
   renderPending = true;
@@ -222,7 +224,8 @@ function previewShows(next) {
     shown.kind !== next.kind ||
     shown.root !== next.root ||
     shown.dir !== next.dir ||
-    shown.text !== next.text
+    shown.text !== next.text ||
+    shown.lineOffset !== next.lineOffset
   ) {
     return false;
   }
@@ -232,7 +235,9 @@ function previewShows(next) {
   return !!target && target.firstChild === shown.first && !(previewBody && previewBody.hidden);
 }
 
-function setPreview(content) {
+// `lineOffset`: lines of frontmatter above `content` in the file, so the
+// preview's data-line attributes match editor lines.
+function setPreview(content, lineOffset = 0) {
   const ws = window.lightmdWorkspace;
   const html = isHtmlFile(currentRelative());
   const next = {
@@ -240,9 +245,10 @@ function setPreview(content) {
     root: (ws && ws.path) || null,
     dir: html ? "" : folderOf(ws && ws.relative),
     text: content,
+    lineOffset: html ? 0 : lineOffset,
   };
   if (previewPane && previewPane.hidden) {
-    deferredPreview = content;
+    deferredPreview = { content, lineOffset };
     return;
   }
   deferredPreview = null;
@@ -256,7 +262,7 @@ function setPreview(content) {
   const target = previewBody || previewPane;
   if (!target) return;
   target.replaceChildren();
-  target.insertAdjacentHTML("afterbegin", renderPreview(content));
+  target.insertAdjacentHTML("afterbegin", renderPreview(content, next.lineOffset));
   shownPreview = { ...next, first: target.firstChild };
   void rewritePreviewImages(target, ws && ws.path, ws && ws.relative);
 }
@@ -276,9 +282,13 @@ function renderDocument(text, updatePreview) {
       frontmatterEl.hidden = true;
     }
     if (updatePreview) setPreview(source);
+    updateOutline(null);
     return;
   }
   const parsed = parseFrontmatter(source);
+  const head = source.slice(0, source.length - parsed.body.length);
+  const lineOffset = head ? head.split("\n").length - 1 : 0;
+  updateOutline(parsed.body, lineOffset);
   const entries = Object.entries(parsed.frontmatter);
   const show = editorDefaults.frontmatter && parsed.hasFrontmatter && entries.length > 0;
   if (frontmatterEl) {
@@ -300,7 +310,7 @@ function renderDocument(text, updatePreview) {
       frontmatterEl.hidden = true;
     }
   }
-  if (updatePreview) setPreview(parsed.body);
+  if (updatePreview) setPreview(parsed.body, lineOffset);
 }
 
 function applyFrontmatter(text, updatePreview = true) {
@@ -402,7 +412,7 @@ if (previewBody) bindPreviewLinks(previewBody);
 if (previewPane && typeof MutationObserver === "function") {
   new MutationObserver(() => {
     if (previewPane.hidden || deferredPreview === null) return;
-    setPreview(deferredPreview);
+    setPreview(deferredPreview.content, deferredPreview.lineOffset);
   }).observe(previewPane, { attributes: true, attributeFilter: ["hidden"] });
 }
 
@@ -637,9 +647,11 @@ window.lightmdEditor = {
   refreshPreview: () => applyFrontmatter(view.state.doc.toString(), true),
   flushPreview,
 };
+bindOutlineAndScrollSync(view);
+bindRecentFolders();
 window.lightmdScheduleAutoSave = scheduleAutoSave;
 window.lightmdCancelAutosave = cancelAutosave;
-restoreSession();
+restoreSession().then(refreshEmptyState, refreshEmptyState);
 mountSettings();
 try {
   bindKeyboard();

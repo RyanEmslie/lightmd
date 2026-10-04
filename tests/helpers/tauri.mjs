@@ -27,6 +27,7 @@ export const KNOWN_COMMANDS = [
   "read_workspace_image",
   "create_workspace_folder",
   "workspace_file_exists",
+  "take_launch_target",
   "plugin:dialog|open",
   "plugin:dialog|save",
   "plugin:dialog|message", // dialog.ask() and dialog.confirm() use it
@@ -60,6 +61,7 @@ const COMMAND_ARGS = {
   read_workspace_image: { path: "string", relative: "string" },
   create_workspace_folder: { path: "string", relative: "string" },
   workspace_file_exists: { path: "string", relative: "string" },
+  take_launch_target: {},
   "plugin:dialog|message": { message: "string" },
   "plugin:opener|open_url": { url: "string", with: "string?" },
 };
@@ -231,6 +233,8 @@ export function createInvoke({
   dialog = {},
   capabilities = loadCapabilities(),
   onInvoke = null,
+  // What `lightmd <path>` would hand over: { root, relative } or null.
+  launchTarget = null,
 } = {}) {
   const rootAbs = normalizeAbs(root);
   // abs -> { type: "file", data, mtime } | { type: "dir", mtime }. mtime is a
@@ -443,6 +447,11 @@ export function createInvoke({
       const data = found.entry.data;
       const bytes = typeof data === "string" ? new TextEncoder().encode(data) : Uint8Array.from(data.bytes);
       return bytes.buffer;
+    },
+    take_launch_target() {
+      const target = launchTarget;
+      launchTarget = null;
+      return target;
     },
     workspace_file_exists({ path, relative }) {
       const found = lookup(confine(path, relative).abs);

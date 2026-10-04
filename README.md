@@ -88,6 +88,27 @@ npm run tauri build
 
 `tauri dev` and `tauri build` open a **LightMD** window that can Open Folder of local `.md` / `.html` files. macOS uses WKWebView; Linux uses WebKitGTK.
 
+## Open from the command line
+
+Pass a folder or a file to open it instead of the last session:
+
+```sh
+lightmd .            # this folder
+lightmd notes/       # another folder
+lightmd README.md    # the file's folder, with the file open
+```
+
+`tauri build` doesn't put `lightmd` on your `PATH`. Link the built binary once:
+
+```sh
+# Linux
+ln -s "$PWD/src-tauri/target/release/lightmd" ~/.local/bin/lightmd
+# macOS
+ln -s "$PWD/src-tauri/target/release/bundle/macos/LightMD.app/Contents/MacOS/lightmd" /usr/local/bin/lightmd
+```
+
+Each run opens a new window.
+
 ## Privacy / local-only
 
 v1 has no telemetry. File access is the opened workspace folder (and any file you Save As elsewhere) plus app config (theme, session, and layout). The backend keeps file paths inside the folder the app passes it; it relies on the app's own code to pass only folders you chose. Theme, session, and layout stay on this machine (OS/localStorage). https links open via the system browser (`tauri-plugin-opener` / `openUrl`) only when the user clicks.
