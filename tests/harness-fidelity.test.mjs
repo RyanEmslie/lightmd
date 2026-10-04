@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 import { bootApp } from "./helpers/app.mjs";
 import { createDocument, mockEl } from "./helpers/dom.mjs";
-import { KNOWN_COMMANDS, createInvoke } from "./helpers/tauri.mjs";
+import { KNOWN_COMMANDS, buildTauriGlobals, createInvoke } from "./helpers/tauri.mjs";
 
 // The fakes in tests/helpers must behave like the real Tauri backend and the
 // real DOM, or app bugs hide behind them. These tests pin that fidelity.
@@ -119,6 +119,43 @@ describe("fake Tauri backend mirrors the real one", () => {
       "Cancel",
     );
     assert.deepEqual(backend.confirms, ["Overwrite?", "Again?"]);
+  });
+});
+
+describe("window.__TAURI__ from buildTauriGlobals mirrors withGlobalTauri", () => {
+  test("dialog.ask/confirm go through plugin:dialog|message and resolve to booleans", async () => {
+    const backend = createInvoke({ dialog: { confirm: true } });
+    const { dialog } = buildTauriGlobals(backend.invoke).__TAURI__;
+    assert.equal(await dialog.ask("Discard?"), true);
+    backend.dialog.confirm = false;
+    assert.equal(await dialog.confirm("Overwrite?"), false);
+    assert.deepEqual(
+      backend.invokes.map((i) => [i.cmd, i.args.buttons]),
+      [
+        ["plugin:dialog|message", "YesNo"],
+        ["plugin:dialog|message", "OkCancel"],
+      ],
+    );
+  });
+
+  test("plugin commands are gated by the capabilities, like Tauri's ACL", async () => {
+    const denied = createInvoke({ capabilities: ["core:default", "dialog:default"] });
+    const win = buildTauriGlobals(denied.invoke).__TAURI__.window;
+    const size = new win.LogicalSize(900, 700);
+    assert.equal(
+      await rejection(win.getCurrentWindow().setSize(size)),
+      "Command plugin:window|set_size not allowed by ACL",
+    );
+    assert.equal(await denied.invoke("plugin:dialog|save", { options: {} }), null);
+
+    const allowed = createInvoke({ capabilities: ["core:window:allow-set-size"] });
+    const api = buildTauriGlobals(allowed.invoke).__TAURI__.window;
+    await api.getCurrentWindow().setSize(new api.LogicalSize(900, 700));
+    assert.deepEqual(allowed.windowCalls[0].args.value, { Logical: { width: 900, height: 700 } });
+    assert.equal(
+      await rejection(allowed.invoke("plugin:dialog|open", {})),
+      "Command plugin:dialog|open not allowed by ACL",
+    );
   });
 });
 
