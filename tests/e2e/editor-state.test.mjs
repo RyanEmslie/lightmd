@@ -100,3 +100,30 @@ test("a setting changed while a tab is in the background applies when it comes b
     await app.close();
   }
 });
+
+test("switching tabs back and forth doesn't keep adding editor styles", async () => {
+  const app = await launchApp({ files: { "a.md": A, "b.md": B } });
+  try {
+    await app.openFolder();
+    await app.openFile("a.md");
+    await app.openFile("b.md");
+    const cssRules = () =>
+      app.page.evaluate(() =>
+        [...document.styleSheets, ...(document.adoptedStyleSheets || [])].reduce(
+          (n, sheet) => n + sheet.cssRules.length,
+          0,
+        ),
+      );
+    await app.clickTab("a.md");
+    await app.clickTab("b.md");
+    const before = await cssRules();
+    for (let i = 0; i < 10; i++) {
+      await app.clickTab("a.md");
+      await app.clickTab("b.md");
+    }
+    assert.equal(await cssRules(), before);
+    assert.deepEqual(app.errors, []);
+  } finally {
+    await app.close();
+  }
+});
