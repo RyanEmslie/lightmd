@@ -1,5 +1,5 @@
 use std::fs;
-use std::io::{self, Write};
+use std::io::{self, Read, Write};
 use std::path::{Component, Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 
@@ -175,8 +175,50 @@ pub fn read_file(root: &Path, relative: impl AsRef<Path>) -> io::Result<String> 
     fs::read_to_string(confined_path(root, relative)?)
 }
 
+/// Largest file read_image returns, so one huge file cannot stall the preview.
+pub const MAX_IMAGE_BYTES: u64 = 20 * 1024 * 1024;
+
+fn image_file(path: &Path) -> bool {
+    matches!(
+        path.extension()
+            .and_then(|ext| ext.to_str())
+            .map(|ext| ext.to_ascii_lowercase())
+            .as_deref(),
+        Some("png" | "jpg" | "jpeg" | "gif" | "webp" | "svg" | "bmp" | "ico" | "avif")
+    )
+}
+
+fn image_too_large() -> io::Error {
+    io::Error::new(io::ErrorKind::InvalidInput, "image is larger than 20 MB")
+}
+
 pub fn read_image(root: &Path, relative: impl AsRef<Path>) -> io::Result<Vec<u8>> {
-    fs::read(confined_path(root, relative)?)
+    let path = confined_path(root, relative)?;
+    if !image_file(&path) {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "not an image file",
+        ));
+    }
+    let meta = fs::metadata(&path)?;
+    if !meta.is_file() {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "path is not a file",
+        ));
+    }
+    if meta.len() > MAX_IMAGE_BYTES {
+        return Err(image_too_large());
+    }
+    // The file may grow after the metadata check, so cap the read as well.
+    let mut bytes = Vec::with_capacity(meta.len() as usize);
+    fs::File::open(&path)?
+        .take(MAX_IMAGE_BYTES + 1)
+        .read_to_end(&mut bytes)?;
+    if bytes.len() as u64 > MAX_IMAGE_BYTES {
+        return Err(image_too_large());
+    }
+    Ok(bytes)
 }
 
 fn modified_ms(meta: &fs::Metadata) -> u64 {
