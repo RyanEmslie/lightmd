@@ -28,7 +28,7 @@ function withCsp(html) {
 }
 
 let lastHtml = "";
-let shownJs = false;
+let written = "";
 let shownFile = null;
 let bound = false;
 
@@ -62,9 +62,12 @@ function syncHtmlJsUi() {
   if (warn) warn.hidden = !htmlJs.enabled;
 }
 
-function writeSrcdoc(frame) {
-  frame.srcdoc = withCsp(lastHtml ?? "");
-  shownJs = htmlJs.enabled;
+// Every srcdoc assignment navigates the frame, even to the same value, so
+// write only a document that differs from the loaded one.
+function writeSrcdoc(frame, value) {
+  if (value === written) return;
+  frame.srcdoc = value;
+  written = value;
 }
 
 export function setHtmlJsEnabled(enabled) {
@@ -73,8 +76,8 @@ export function setHtmlJsEnabled(enabled) {
   const frame = document.getElementById("html-viewer");
   if (!frame) return;
   applySandbox(frame);
-  // The sandbox applies on the next load, so reload to start or stop scripts.
-  if (!frame.hidden) writeSrcdoc(frame);
+  // The sandbox applies on the next load; the new CSP meta forces that reload.
+  if (!frame.hidden) writeSrcdoc(frame, withCsp(lastHtml));
 }
 
 function bindToggle() {
@@ -89,7 +92,8 @@ function bindToggle() {
 
 export function showHtmlViewer(html) {
   bindToggle();
-  const next = html ?? "";
+  // CodeMirror holds an LF copy of a CRLF file; both are the same document.
+  const next = String(html ?? "").replace(/\r\n?/g, "\n");
   const frame = document.getElementById("html-viewer");
   const previewBody = document.getElementById("preview-body");
   const chrome = document.getElementById("html-js-chrome");
@@ -97,10 +101,9 @@ export function showHtmlViewer(html) {
   const file = currentFile();
   if (frame.hidden || file !== shownFile) htmlJs.enabled = false;
   shownFile = file;
-  const same = lastHtml === next && frame.hidden === false && shownJs === htmlJs.enabled;
   lastHtml = next;
   applySandbox(frame);
-  if (!same) writeSrcdoc(frame);
+  writeSrcdoc(frame, withCsp(next));
   frame.hidden = false;
   if (previewBody) previewBody.hidden = true;
   if (chrome) chrome.hidden = false;
@@ -112,16 +115,16 @@ export function hideHtmlViewer() {
   const previewBody = document.getElementById("preview-body");
   const chrome = document.getElementById("html-js-chrome");
   const warn = document.getElementById("html-js-warn");
+  htmlJs.enabled = false;
+  shownFile = null;
+  lastHtml = "";
   if (frame) {
-    frame.srcdoc = "";
+    writeSrcdoc(frame, "");
     frame.hidden = true;
   }
   if (previewBody) previewBody.hidden = false;
   if (chrome) chrome.hidden = true;
   if (warn) warn.hidden = true;
-  lastHtml = "";
-  htmlJs.enabled = false;
-  shownFile = null;
   syncHtmlJsUi();
 }
 
