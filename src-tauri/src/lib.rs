@@ -90,65 +90,72 @@ fn outside_workspace() -> io::Error {
     )
 }
 
+fn dangling_symlink() -> io::Error {
+    io::Error::new(
+        io::ErrorKind::InvalidInput,
+        "path is a symlink whose target does not exist",
+    )
+}
+
 fn confined_path(root: &Path, relative: impl AsRef<Path>) -> io::Result<PathBuf> {
     let root = root.canonicalize()?;
-    let relative = relative.as_ref();
-    if relative.is_absolute() {
-        return Err(outside_workspace());
-    }
 
-    let joined = root.join(relative);
-    if joined.exists() {
-        let path = joined.canonicalize()?;
-        path.strip_prefix(&root).map_err(|_| outside_workspace())?;
-        return Ok(path);
-    }
-
-    // Save As may write a file that does not exist yet; confine without canonicalize.
-    let mut path = root.clone();
-    for component in relative.components() {
+    // Resolve `.` and `..` lexically. The result may not climb above the root,
+    // be absolute, or name the root itself (which also rejects "").
+    let mut names = Vec::new();
+    for component in relative.as_ref().components() {
         match component {
             Component::CurDir => {}
-            Component::Normal(name) => path.push(name),
+            Component::Normal(name) => names.push(name),
             Component::ParentDir => {
-                if path == root {
+                if names.pop().is_none() {
                     return Err(outside_workspace());
                 }
-                path.pop();
             }
             Component::Prefix(_) | Component::RootDir => {
                 return Err(outside_workspace());
             }
         }
     }
-
-    if !path.starts_with(&root) || path == root {
+    if names.is_empty() {
         return Err(outside_workspace());
     }
 
-    let mut missing = Vec::new();
-    let mut prefix = path;
-    while !prefix.exists() {
-        match prefix.file_name() {
-            Some(name) => {
-                missing.push(name.to_os_string());
-                prefix.pop();
+    // Walk the components that exist. Every symlink among them, including the
+    // last, must resolve to a real path inside the root; a dangling link would
+    // let a write create its target wherever it points. Save As may name
+    // folders and a file that do not exist yet, so the rest is appended as-is.
+    let mut path = root.clone();
+    let mut names = names.into_iter();
+    while let Some(name) = names.next() {
+        let next = path.join(name);
+        match fs::symlink_metadata(&next) {
+            Ok(meta) if meta.file_type().is_symlink() => {
+                let target = next.canonicalize().map_err(|e| {
+                    if e.kind() == io::ErrorKind::NotFound {
+                        dangling_symlink()
+                    } else {
+                        e
+                    }
+                })?;
+                if !target.starts_with(&root) {
+                    return Err(outside_workspace());
+                }
+                path = target;
             }
-            None => break,
-        }
-        if !prefix.starts_with(&root) {
-            return Err(outside_workspace());
+            Ok(_) => path = next,
+            Err(e) if e.kind() == io::ErrorKind::NotFound => {
+                path = next;
+                path.extend(names);
+                break;
+            }
+            Err(e) => return Err(e),
         }
     }
-    let mut prefix = prefix.canonicalize()?;
-    prefix.strip_prefix(&root).map_err(|_| outside_workspace())?;
-    for name in missing.into_iter().rev() {
-        prefix.push(name);
-    }
-    if !prefix.starts_with(&root) {
+    if path == root {
         return Err(outside_workspace());
     }
-    Ok(prefix)
+    Ok(path)
 }
 
 pub fn read_file(root: &Path, relative: impl AsRef<Path>) -> io::Result<String> {
