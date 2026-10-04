@@ -221,10 +221,6 @@ export function restoreSession(extra) {
       stored = null;
     }
   }
-  const fallbackDefault =
-    extra && typeof extra === "object" && extra.defaultFolder !== undefined
-      ? extra.defaultFolder
-      : session.defaultFolder;
   const lastFolder = storedFolder(stored);
   if (stored && typeof stored === "object") {
     const pickedTheme = pickThemeName(stored);
@@ -233,6 +229,11 @@ export function restoreSession(extra) {
     if (typeof stored.restore === "boolean") session.restore = stored.restore;
     if ("defaultFolder" in stored) session.defaultFolder = stored.defaultFolder;
   }
+  // After the stored settings load, so a saved Default folder applies.
+  const fallbackDefault =
+    extra && typeof extra === "object" && extra.defaultFolder !== undefined
+      ? extra.defaultFolder
+      : session.defaultFolder;
   if (!lastFolder) {
     if (fallbackDefault !== undefined) session.lastFolder = fallbackDefault;
   } else {
