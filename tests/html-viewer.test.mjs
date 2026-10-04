@@ -111,6 +111,55 @@ test("showHtmlViewer does not rewrite srcdoc when the HTML is unchanged", () => 
   assert.equal(writes, afterOpen + 1, "changed HTML must still update srcdoc");
 });
 
+// Every srcdoc assignment navigates the iframe, even to the same value.
+function countSrcdocWrites(frame) {
+  const counter = { writes: 0 };
+  let current = frame.srcdoc;
+  Object.defineProperty(frame, "srcdoc", {
+    configurable: true,
+    get() {
+      return current;
+    },
+    set(value) {
+      counter.writes += 1;
+      current = value;
+    },
+  });
+  return counter;
+}
+
+test("showHtmlViewer compares the HTML with line endings normalized", () => {
+  const frame = el("html-viewer");
+  htmlJs.enabled = false;
+  const counter = countSrcdocWrites(frame);
+  showHtmlViewer("<p>a</p>\r\n<p>b</p>\r\n");
+  const afterOpen = counter.writes;
+  showHtmlViewer("<p>a</p>\n<p>b</p>\n");
+  assert.equal(
+    counter.writes,
+    afterOpen,
+    "the editor's LF copy of a CRLF file is the same document; reloading it flickers",
+  );
+  showHtmlViewer("<p>a</p>\n<p>c</p>\n");
+  assert.equal(counter.writes, afterOpen + 1, "a real change still reloads");
+});
+
+test("hideHtmlViewer assigns srcdoc only when there is something to clear", () => {
+  const frame = el("html-viewer");
+  showHtmlViewer("<p>shown</p>");
+  const counter = countSrcdocWrites(frame);
+  hideHtmlViewer();
+  assert.equal(counter.writes, 1, "hiding a shown document clears it once");
+  assert.equal(frame.srcdoc, "");
+  hideHtmlViewer();
+  hideHtmlViewer();
+  assert.equal(
+    counter.writes,
+    1,
+    "every Markdown render calls hideHtmlViewer; an empty frame must not be navigated again",
+  );
+});
+
 test("HTML viewer CSS isolates the iframe from sibling explorer paints", () => {
   const htmlPath = join(fixturesDir, "..", "..", "src", "index.html");
   const html = readFileSync(htmlPath, "utf8");
