@@ -61,7 +61,7 @@ test("typing coalesces preview renders into one, after the edits", async () => {
     assert.doesNotMatch(await previewText(app), /abcde/, "the preview waits for the edits to settle");
     await flushPreview(app);
     assert.equal(await renders(app), 1, "five keystrokes make one render");
-    assert.match(await previewText(app), /start abcde/);
+    assert.match(await previewText(app), /start\s+abcde/);
     await flushPreview(app);
     assert.equal(await renders(app), 1, "nothing is left pending after the render");
 
@@ -101,6 +101,36 @@ test("opening a file renders its preview at once, and only once", async () => {
       await flushPreview(app);
       assert.equal(await renders(app), before, `${relative}: no second render may be left pending`);
     }
+    assert.deepEqual(app.errors, []);
+  } finally {
+    await app.close();
+  }
+});
+
+test("restoring the session renders the restored note once", async () => {
+  const app = await openNote({ "note.md": "# Restored\n\nbody\n" }, "note.md");
+  try {
+    // Count non-empty renders from the very start of the next page load.
+    await app.page.addInitScript(() => {
+      const insert = Element.prototype.insertAdjacentHTML;
+      window.__restoreRenders = 0;
+      Element.prototype.insertAdjacentHTML = function (where, html) {
+        if (this.id === "preview-body" && html) window.__restoreRenders += 1;
+        return insert.call(this, where, html);
+      };
+    });
+    await app.reload();
+    await app.waitFor(() => app.page.evaluate(() => window.lightmdWorkspace.relative === "note.md"), {
+      message: "the session to restore note.md",
+    });
+    await app.settle();
+    await flushPreview(app);
+    assert.equal(await app.page.locator("#preview-body h1").textContent(), "Restored");
+    assert.equal(
+      await app.page.evaluate(() => window.__restoreRenders),
+      1,
+      "the restore's load, editor change and re-open must render once",
+    );
     assert.deepEqual(app.errors, []);
   } finally {
     await app.close();
