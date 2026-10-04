@@ -9,6 +9,12 @@ pub struct Entry {
     pub is_dir: bool,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize)]
+pub struct FileStat {
+    pub modified_ms: u64,
+    pub size: u64,
+}
+
 pub fn list(root: &Path) -> io::Result<Vec<Entry>> {
     let mut entries = Vec::new();
     collect(root, fs::read_dir(root)?, &mut entries);
@@ -173,18 +179,78 @@ pub fn read_image(root: &Path, relative: impl AsRef<Path>) -> io::Result<Vec<u8>
     fs::read(confined_path(root, relative)?)
 }
 
+fn modified_ms(meta: &fs::Metadata) -> u64 {
+    meta.modified()
+        .ok()
+        .and_then(|time| time.duration_since(std::time::UNIX_EPOCH).ok())
+        .map_or(0, |since| since.as_millis() as u64)
+}
+
+pub fn stat_file(root: &Path, relative: impl AsRef<Path>) -> io::Result<FileStat> {
+    let meta = fs::metadata(confined_path(root, relative)?)?;
+    if !meta.is_file() {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "path is not a file",
+        ));
+    }
+    Ok(FileStat {
+        modified_ms: modified_ms(&meta),
+        size: meta.len(),
+    })
+}
+
+/// Ok(false) when nothing exists at the path; Err when it escapes the workspace.
+pub fn file_exists(root: &Path, relative: impl AsRef<Path>) -> io::Result<bool> {
+    confined_path(root, relative)?.try_exists()
+}
+
+/// Writes `contents` and returns the file's new `modified_ms`.
 pub fn write_file(
     root: &Path,
     relative: impl AsRef<Path>,
     contents: impl AsRef<[u8]>,
-) -> io::Result<()> {
-    let path = confined_path(root, relative)?;
+) -> io::Result<u64> {
+    write_confined(&confined_path(root, relative)?, contents.as_ref(), None)
+}
+
+/// Like `write_file`, but if `expected_modified_ms` is set and the file exists
+/// with a different mtime, nothing is written and the error starts "conflict:".
+pub fn write_file_if_unchanged(
+    root: &Path,
+    relative: impl AsRef<Path>,
+    contents: impl AsRef<[u8]>,
+    expected_modified_ms: Option<u64>,
+) -> io::Result<u64> {
+    write_confined(
+        &confined_path(root, relative)?,
+        contents.as_ref(),
+        expected_modified_ms,
+    )
+}
+
+fn write_confined(
+    path: &Path,
+    contents: &[u8],
+    expected_modified_ms: Option<u64>,
+) -> io::Result<u64> {
+    if let Some(expected) = expected_modified_ms {
+        match fs::metadata(path) {
+            Ok(meta) if modified_ms(&meta) != expected => {
+                return Err(io::Error::other("conflict: file changed on disk"));
+            }
+            Ok(_) => {}
+            Err(e) if e.kind() == io::ErrorKind::NotFound => {}
+            Err(e) => return Err(e),
+        }
+    }
     if let Some(parent) = path.parent() {
         if !parent.exists() {
             fs::create_dir_all(parent)?;
         }
     }
-    atomic_write(&path, contents.as_ref())
+    atomic_write(path, contents)?;
+    fs::metadata(path).map(|meta| modified_ms(&meta))
 }
 
 static TEMP_COUNTER: AtomicU64 = AtomicU64::new(0);
@@ -271,7 +337,9 @@ fn read_workspace_file(path: String, relative: String) -> Result<String, String>
 
 #[tauri::command]
 fn write_workspace_file(path: String, relative: String, contents: String) -> Result<(), String> {
-    write_file(Path::new(&path), &relative, contents).map_err(|e| e.to_string())
+    write_file(Path::new(&path), &relative, contents)
+        .map(|_| ())
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
