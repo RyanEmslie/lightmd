@@ -1492,8 +1492,10 @@ mod tests {
     }
 
     #[test]
-    fn navigation_sends_web_links_to_the_system_browser() {
+    fn navigation_cancels_web_links_without_opening_anything() {
         use super::{classify_navigation, Navigation};
+        // The hook also fires for HTML preview iframes, so a remote iframe or meta
+        // refresh in an untrusted file must be cancelled, never handed to a browser.
         for external in [
             "https://github.com/clearly-bots/lightmd",
             "https://github.com/clearly-bots/lightmd/blob/main/LICENSE",
@@ -1502,8 +1504,8 @@ mod tests {
         ] {
             assert_eq!(
                 classify_navigation(&url(external), None),
-                Navigation::OpenExternal,
-                "{external} must open in the system browser, not replace the app"
+                Navigation::Deny,
+                "{external} must be cancelled, not replace the app"
             );
         }
     }
@@ -1519,14 +1521,14 @@ mod tests {
         for other in ["http://localhost:1421/", "https://localhost:1420/"] {
             assert_eq!(
                 classify_navigation(&url(other), Some(&dev)),
-                Navigation::OpenExternal,
+                Navigation::Deny,
                 "{other} is not the dev server origin"
             );
         }
     }
 
     #[test]
-    fn navigation_blocks_everything_else() {
+    fn navigation_cancels_other_schemes() {
         use super::{classify_navigation, Navigation};
         for blocked in [
             "file:///etc/passwd",
@@ -1539,27 +1541,9 @@ mod tests {
         ] {
             assert_eq!(
                 classify_navigation(&url(blocked), None),
-                Navigation::Block,
+                Navigation::Deny,
                 "{blocked} must be cancelled"
             );
         }
-    }
-
-    #[test]
-    fn external_opens_are_throttled() {
-        use super::external_open_allowed;
-        let start = std::time::Instant::now();
-        assert!(
-            external_open_allowed(None, start),
-            "the first open is allowed"
-        );
-        assert!(
-            !external_open_allowed(Some(start), start + Duration::from_millis(300)),
-            "a second open within a second is dropped, so a page cannot flood the browser"
-        );
-        assert!(external_open_allowed(
-            Some(start),
-            start + Duration::from_secs(1)
-        ));
     }
 }
