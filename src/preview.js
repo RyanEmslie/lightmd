@@ -349,7 +349,7 @@ async function openWorkspaceLink(href, root) {
   const ws = globalThis.lightmdWorkspace;
   const relative = confinedWorkspaceRelative(href, ws && ws.relative);
   if (!relative || !OPENABLE_LINK.test(relative)) return;
-  await open(relative);
+  await open(relative, (ws && (ws.root || ws.path)) || undefined);
   if (typeof globalThis.lightmdPersistSession === "function") {
     globalThis.lightmdPersistSession({ lastFile: relative, file: relative });
   }

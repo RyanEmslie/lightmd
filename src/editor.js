@@ -235,6 +235,12 @@ function previewShows(next) {
   return !!target && target.firstChild === shown.first && !(previewBody && previewBody.hidden);
 }
 
+// The open document's own folder. After a Save As elsewhere the explorer
+// (ws.path) can show another folder than the one an older tab lives in.
+function docRoot(ws) {
+  return (ws && (ws.root || ws.path)) || null;
+}
+
 // `lineOffset`: lines of frontmatter above `content` in the file, so the
 // preview's data-line attributes match editor lines.
 function setPreview(content, lineOffset = 0) {
@@ -242,7 +248,7 @@ function setPreview(content, lineOffset = 0) {
   const html = isHtmlFile(currentRelative());
   const next = {
     kind: html ? "html" : "md",
-    root: (ws && ws.path) || null,
+    root: docRoot(ws),
     dir: html ? "" : folderOf(ws && ws.relative),
     text: content,
     lineOffset: html ? 0 : lineOffset,
@@ -264,14 +270,14 @@ function setPreview(content, lineOffset = 0) {
   target.replaceChildren();
   target.insertAdjacentHTML("afterbegin", renderPreview(content, next.lineOffset));
   shownPreview = { ...next, first: target.firstChild };
-  void rewritePreviewImages(target, ws && ws.path, ws && ws.relative);
+  void rewritePreviewImages(target, docRoot(ws), ws && ws.relative);
 }
 
 // Re-reads the images of the markdown preview on screen (after invalidation).
 function refreshPreviewImages() {
   if (!shownPreview || shownPreview.kind !== "md" || !previewShows(shownPreview)) return;
   const ws = window.lightmdWorkspace;
-  void rewritePreviewImages(previewBody || previewPane, ws && ws.path, ws && ws.relative);
+  void rewritePreviewImages(previewBody || previewPane, docRoot(ws), ws && ws.relative);
 }
 
 function renderDocument(text, updatePreview) {
@@ -485,8 +491,12 @@ function openBuffersForSearch() {
       ? [...(window.lightmdGetOpenBuffers() || [])]
       : [];
   const ws = window.lightmdWorkspace;
-  if (ws && ws.path && ws.relative) {
-    buffers.push({ root: ws.path, relative: ws.relative, contents: view.state.doc.toString() });
+  const root = docRoot(ws);
+  if (root && ws.relative) {
+    const contents = view.state.doc.toString();
+    const active = buffers.find((b) => b.root === root && b.relative === ws.relative);
+    if (active) active.contents = contents;
+    else buffers.push({ root, relative: ws.relative, contents });
   }
   return buffers;
 }

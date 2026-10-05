@@ -2355,6 +2355,9 @@
           if (typeof window.lightmdCancelAutosave === "function") {
             window.lightmdCancelAutosave();
           }
+          // List it first: a folder that can't be read (moved, deleted) must
+          // not become the open or last folder.
+          const entries = await window.__TAURI__.core.invoke("list_workspace", { path });
           navigation += 1;
           folderLoads += 1;
           openTabs = [];
@@ -2363,7 +2366,8 @@
           setWorkspaceRoot(path);
           persistOpenFolder(path);
           renderTabs();
-          await loadWorkspace(path);
+          lastEntries = entries;
+          render(entries);
           return true;
         }
 
@@ -2391,9 +2395,11 @@
           return pending;
         }
 
-        async function applyFile(relative) {
-          if (!workspacePath) return;
-          const root = workspacePath;
+        // `fromRoot`: the folder to open it in when not the explorer's (a link
+        // in a tab that lives in another folder).
+        async function applyFile(relative, fromRoot) {
+          const root = fromRoot || workspacePath;
+          if (!root) return;
           const request = ++navigation;
           const folderLoad = folderLoads;
           const open = findTab(root, relative);
