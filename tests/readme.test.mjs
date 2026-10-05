@@ -68,9 +68,18 @@ test("update steps pull, install and rebuild", () => {
   assert.match(update, /npm run tauri build/);
 });
 
-test("README doesn't offer downloads or installers that don't exist", () => {
-  assert.match(section("Install"), /no prebuilt downloads/i);
-  assert.doesNotMatch(readme, /github\.com\/[^\s)]+\/releases\b/i);
+test("downloads point at the latest release and explain opening the unsigned macOS app", () => {
+  const install = section("Install");
+  assert.match(install, /https:\/\/github\.com\/RyanEmslie\/lightmd\/releases\/latest/);
+  assert.match(install, /Open Anyway/);
+  assert.match(install, /xattr -dr com\.apple\.quarantine \/Applications\/LightMD\.app/);
+});
+
+test("the release workflow builds macOS and Linux from version tags", () => {
+  const workflow = read(".github/workflows/release.yml");
+  assert.match(workflow, /tags:\s*\["v\*"\]/);
+  assert.match(workflow, /universal-apple-darwin/);
+  assert.match(workflow, /ubuntu-/);
 });
 
 test("privacy: no telemetry and no update check", () => {

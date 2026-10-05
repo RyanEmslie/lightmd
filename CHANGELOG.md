@@ -4,6 +4,10 @@ All notable changes to LightMD are listed here, newest first. The format follows
 
 ## [Unreleased]
 
+## [0.1.0] - 2026-10-04
+
+The first public release.
+
 ### Added
 
 - Open a folder or file from the command line: `lightmd .`, `lightmd notes/`, `lightmd README.md`.
@@ -46,3 +50,6 @@ All notable changes to LightMD are listed here, newest first. The format follows
 - HTML files can no longer load remote images, stylesheets, fonts or frames.
 - The backend rejects symlinks that lead outside the opened folder.
 - The app's permissions are reduced to what it uses, and the window can't be navigated away from the app.
+
+[Unreleased]: https://github.com/RyanEmslie/lightmd/compare/v0.1.0...HEAD
+[0.1.0]: https://github.com/RyanEmslie/lightmd/releases/tag/v0.1.0

@@ -29,9 +29,23 @@ It's built with [Tauri 2](https://v2.tauri.app/), so it uses the system webview 
 
 ## Install
 
-There are no prebuilt downloads yet. You build LightMD from source, which takes a few minutes the first time.
+### Download
 
-### 1. Install the prerequisites
+Get the latest build from the [Releases page](https://github.com/RyanEmslie/lightmd/releases/latest):
+
+- **macOS** (Apple silicon and Intel): `LightMD_<version>_universal.dmg`. Open it and drag LightMD into Applications.
+- **Linux**: the `.deb` for Debian and Ubuntu (`sudo apt install ./LightMD_<version>_amd64.deb`), the `.rpm` for Fedora, or the `.AppImage`, which runs anywhere (`chmod +x` it first).
+
+The macOS build isn't signed with an Apple Developer ID yet, so macOS blocks it the first time. To open it, either:
+
+- try to open LightMD, then go to **System Settings → Privacy & Security** and click **Open Anyway**, or
+- run `xattr -dr com.apple.quarantine /Applications/LightMD.app` once in Terminal.
+
+### Build from source
+
+Building takes a few minutes the first time.
+
+#### 1. Install the prerequisites
 
 **macOS**
 
@@ -67,7 +81,7 @@ There are no prebuilt downloads yet. You build LightMD from source, which takes 
 
 For Fedora, Arch and other distributions, see [Tauri's Linux prerequisites](https://v2.tauri.app/start/prerequisites/#linux).
 
-### 2. Build
+#### 2. Build
 
 ```sh
 git clone https://github.com/RyanEmslie/lightmd
@@ -76,7 +90,7 @@ npm install
 npm run tauri build
 ```
 
-### 3. Install the app
+#### 3. Install the app
 
 The build writes the app to `src-tauri/target/release/bundle/`.
 
@@ -90,7 +104,7 @@ sudo apt install ./src-tauri/target/release/bundle/deb/*.deb
 ./src-tauri/target/release/bundle/appimage/*.AppImage
 ```
 
-### 4. Add the `lightmd` command (optional)
+#### 4. Add the `lightmd` command (optional)
 
 The `.deb` already puts `lightmd` on your `PATH`. Otherwise, link it once:
 
@@ -103,7 +117,9 @@ ln -s "$PWD/src-tauri/target/release/lightmd" ~/.local/bin/lightmd
 
 ## Update
 
-From your clone:
+If you installed a download, get the new version from the [Releases page](https://github.com/RyanEmslie/lightmd/releases/latest) and install it over the old one.
+
+If you built from source, from your clone:
 
 ```sh
 git pull

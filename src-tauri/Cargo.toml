@@ -1,6 +1,6 @@
 [package]
 name = "lightmd"
-version = "0.0.0"
+version = "0.1.0"
 description = "Local Markdown/HTML reader"
 authors = ["Ryan Emslie"]
 edition = "2021"
