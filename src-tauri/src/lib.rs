@@ -1618,11 +1618,9 @@ mod tests {
         let permissions = capability["permissions"]
             .as_array()
             .expect("permissions must be a list");
-        // layout.js restores the window size with setSize, and dialog confirm()
-        // and ask() both invoke plugin:dialog|message.
+        // dialog confirm() and ask() both invoke plugin:dialog|message.
         for required in [
             "core:default",
-            "core:window:allow-set-size",
             "dialog:allow-open",
             "dialog:allow-save",
             "dialog:allow-message",

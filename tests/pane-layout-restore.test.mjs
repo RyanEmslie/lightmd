@@ -329,39 +329,19 @@ async function restoreWithSavedLayout(saved) {
 
 const SAVED_WINDOW = { window: { width: 1234, height: 777 }, remember: true };
 
-test("restore applies the persisted window size through the Tauri window API", async () => {
+test("restore never resizes the window: it opens maximized", async () => {
   const backend = await restoreWithSavedLayout(SAVED_WINDOW);
-  const calls = backend.invokes.filter((c) => c.cmd === "plugin:window|set_size");
-  assert.equal(
-    calls.length,
-    1,
-    "restoreLayout must call getCurrentWindow().setSize() once (copying layout.window is not enough)",
-  );
-  assert.deepEqual(
-    calls[0].args.value,
-    { Logical: { width: 1234, height: 777 } },
-    "setSize must receive the saved size as a LogicalSize",
-  );
-});
-
-test("restore leaves the window size alone when remember layout is off", async () => {
-  const backend = await restoreWithSavedLayout({ ...SAVED_WINDOW, remember: false });
   assert.equal(
     backend.invokes.some((c) => c.cmd === "plugin:window|set_size"),
     false,
-    "with remember layout off, restore must not resize the window",
+    "a saved size must not shrink the maximized window",
   );
 });
 
-test(
-  "the app's capabilities let the window-size restore through",
-  async () => {
-    const backend = await restoreWithSavedLayout(SAVED_WINDOW);
-    const rejected = backend.rejections.find((r) => r.cmd === "plugin:window|set_size");
-    assert.equal(rejected, undefined, `setSize was rejected: ${rejected?.error}`);
-    assert.equal(backend.windowCalls.length, 1, "the window must actually be resized");
-  },
-);
+test("the main window opens maximized", () => {
+  const conf = JSON.parse(readFileSync(join(srcDir, "..", "src-tauri", "tauri.conf.json"), "utf8"));
+  assert.equal(conf.app.windows[0].maximized, true);
+});
 
 test("chrome control rearranges panes (not API-only)", () => {
   const files = loadSources();

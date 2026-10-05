@@ -638,29 +638,6 @@ function syncLayoutControls() {
   syncSidebarToggle();
 }
 
-function applyWindowSize() {
-  const width = layout.window.width;
-  const height = layout.window.height;
-  if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) return;
-  try {
-    const tw = globalThis.__TAURI__?.window || globalThis.__TAURI__?.webviewWindow;
-    const LogicalSize = tw?.LogicalSize || globalThis.__TAURI__?.dpi?.LogicalSize;
-    const getCurrent = tw?.getCurrentWindow || tw?.getCurrentWebviewWindow;
-    if (typeof getCurrent === "function" && LogicalSize) {
-      const size = new LogicalSize(width, height);
-      const win = getCurrent();
-      if (win && typeof win.setSize === "function") {
-        const ret = win.setSize(size);
-        if (ret && typeof ret.catch === "function") {
-          ret.catch((err) => console.error("LightMD: could not restore the window size", err));
-        }
-      }
-    }
-  } catch (err) {
-    console.error("LightMD: could not restore the window size", err);
-  }
-}
-
 export function persistLayout() {
   const ls = storage();
   if (!ls || typeof ls.setItem !== "function") return;
@@ -767,7 +744,7 @@ export function restoreLayout() {
   if (typeof parsed.remember === "boolean") layout.remember = parsed.remember;
   ensureOpenPane({ explorer: true, editor: true, preview: true });
   clampOpenPaneWidths();
-  applyWindowSize();
+  // The window itself always opens maximized (tauri.conf.json); only panes restore.
   applyLayoutToDom();
 }
 

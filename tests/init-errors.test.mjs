@@ -42,22 +42,6 @@ function mentions(calls, re) {
   return calls.some((args) => args.some((a) => re.test(String(a?.message ?? a))));
 }
 
-test("a rejected window-size restore is logged instead of swallowed", async () => {
-  const storage = memoryStorage();
-  storage.setItem("lightmd.layout", JSON.stringify({ window: { width: 1234, height: 777 }, remember: true }));
-  installApp(storage);
-  const backend = createInvoke({ capabilities: [] });
-  globalThis.__TAURI__ = buildTauriGlobals(backend.invoke).__TAURI__;
-  const calls = captureConsoleErrors();
-  await fresh("layout.js", "set-size");
-  await new Promise((resolve) => setImmediate(resolve));
-  assert.ok(
-    backend.rejections.some((r) => r.cmd === "plugin:window|set_size"),
-    "precondition: the fake backend rejected setSize",
-  );
-  assert.ok(calls.length > 0, "the setSize failure must reach console.error");
-});
-
 // A document whose lookups throw stands in for any real init bug.
 function installBrokenDocument() {
   const doc = installApp();
