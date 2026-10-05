@@ -482,7 +482,7 @@ pub fn launch_target(
     let path = cwd.join(arg).canonicalize().ok()?;
     if path.is_dir() {
         return Some(LaunchTarget {
-            root: path.to_string_lossy().into_owned(),
+            root: plain_path(&path.to_string_lossy()),
             relative: None,
         });
     }
@@ -494,9 +494,26 @@ pub fn launch_target(
         None
     };
     Some(LaunchTarget {
-        root: parent.to_string_lossy().into_owned(),
+        root: plain_path(&parent.to_string_lossy()),
         relative,
     })
+}
+
+/// `canonicalize()` returns Windows paths in verbatim form (`\\?\C:\notes`,
+/// `\\?\UNC\server\share`). The file dialog and the frontend use the usual
+/// form, so a launch path in verbatim form would never match the same folder
+/// picked in a dialog. Other paths pass through unchanged.
+fn plain_path(path: &str) -> String {
+    if let Some(rest) = path.strip_prefix(r"\\?\UNC\") {
+        return format!(r"\\{rest}");
+    }
+    if let Some(rest) = path.strip_prefix(r"\\?\") {
+        let bytes = rest.as_bytes();
+        if bytes.len() >= 2 && bytes[0].is_ascii_alphabetic() && bytes[1] == b':' {
+            return rest.to_string();
+        }
+    }
+    path.to_string()
 }
 
 struct PendingLaunch(std::sync::Mutex<Option<LaunchTarget>>);
@@ -1382,6 +1399,14 @@ mod tests {
             .chain(list.iter().copied())
             .map(String::from)
             .collect()
+    }
+
+    #[test]
+    fn plain_path_drops_the_windows_verbatim_prefix() {
+        assert_eq!(super::plain_path(r"\\?\C:\notes"), r"C:\notes");
+        assert_eq!(super::plain_path(r"\\?\UNC\server\share\notes"), r"\\server\share\notes");
+        assert_eq!(super::plain_path(r"\\?\Volume{abc}\x"), r"\\?\Volume{abc}\x");
+        assert_eq!(super::plain_path("/home/me/notes"), "/home/me/notes");
     }
 
     #[test]
