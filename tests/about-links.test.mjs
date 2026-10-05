@@ -17,6 +17,7 @@ test("Settings > About links open in the system browser, not in the app window",
   const hrefs = links.map((a) => a.getAttribute("href"));
   assert.deepEqual(hrefs, [
     "https://github.com/RyanEmslie/lightmd",
+    "https://github.com/RyanEmslie/lightmd/blob/main/CHANGELOG.md",
     "https://github.com/RyanEmslie/lightmd/blob/main/LICENSE",
   ]);
   for (const link of links) {

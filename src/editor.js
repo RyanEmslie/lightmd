@@ -415,6 +415,22 @@ applyFrontmatter(view.state.doc.toString());
 updateWordCount(view.state.doc.toString());
 if (previewBody) bindPreviewLinks(previewBody);
 
+// A faint logo stands in for an empty markdown preview (a new note, no file).
+const previewEmpty = document.getElementById("preview-empty");
+function syncPreviewEmpty() {
+  if (!previewEmpty || !previewBody) return;
+  const showingHtml = htmlViewer && !htmlViewer.hidden;
+  const hasContent = previewBody.textContent.trim() !== "" || !!previewBody.querySelector("img, hr, table, input");
+  previewEmpty.hidden = showingHtml || hasContent;
+}
+if (previewBody && typeof MutationObserver === "function") {
+  new MutationObserver(syncPreviewEmpty).observe(previewBody, { childList: true, subtree: true, characterData: true });
+  if (htmlViewer) {
+    new MutationObserver(syncPreviewEmpty).observe(htmlViewer, { attributes: true, attributeFilter: ["hidden"] });
+  }
+}
+syncPreviewEmpty();
+
 if (previewPane && typeof MutationObserver === "function") {
   new MutationObserver(() => {
     if (previewPane.hidden || deferredPreview === null) return;

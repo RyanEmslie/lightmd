@@ -13,7 +13,7 @@ All notable changes to LightMD are listed here, newest first. The format follows
 - Scroll sync between editor and preview, with a Settings toggle.
 - Heading anchors and relative `.md` / `.html` links work in the preview.
 - A dirty marker on tabs with unsaved changes.
-- A new app icon.
+- A new app icon, also shown inside the app: a welcome screen when nothing is open, the explorer header, Settings → About (with a Changelog link) and an empty preview.
 
 ### Changed
 
