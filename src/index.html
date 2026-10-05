@@ -158,6 +158,81 @@
         position: relative;
       }
 
+      #brand {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        margin-right: auto;
+        font-weight: 600;
+        color: var(--fg);
+        white-space: nowrap;
+      }
+
+      #welcome {
+        position: absolute;
+        inset: 0;
+        z-index: 2;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 8px;
+        padding: 24px;
+        text-align: center;
+        background: var(--bg);
+      }
+
+      #welcome[hidden],
+      #preview-empty[hidden] {
+        display: none;
+      }
+
+      #welcome h2 {
+        margin: 4px 0 0;
+        font-size: 20px;
+        font-weight: 600;
+      }
+
+      #welcome-hint {
+        margin: 0 0 8px;
+        max-width: 36ch;
+        color: var(--fg-muted);
+      }
+
+      #welcome #recent-empty {
+        width: min(320px, 100%);
+        margin: 16px 0 0;
+        text-align: left;
+      }
+
+      #preview-empty {
+        position: absolute;
+        inset: 0;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 12px;
+        color: var(--fg-muted);
+        pointer-events: none;
+      }
+
+      #preview-empty svg {
+        opacity: 0.18;
+        filter: grayscale(1);
+      }
+
+      .settings-about-brand {
+        display: flex;
+        align-items: center;
+        gap: 14px;
+      }
+
+      .settings-about-brand strong,
+      .settings-about-brand span {
+        display: block;
+      }
+
       #recent-folders {
         margin-left: -6px;
         padding: 0 2px;
@@ -1314,12 +1389,43 @@
           </section>
           <section class="settings-section" data-settings-section="about" id="settings-about">
             <h2>About</h2><p class="settings-lede">LightMD is a local-first Markdown workspace.</p>
-            <div class="settings-panel settings-about-panel"><div><strong>LightMD</strong><span>Version 0.0.0</span></div><a href="https://github.com/RyanEmslie/lightmd">View source on GitHub ↗</a><a href="https://github.com/RyanEmslie/lightmd/blob/main/LICENSE">MIT License</a></div>
+            <div class="settings-panel settings-about-panel"><div class="settings-about-brand"><svg width="48" height="48" aria-hidden="true" focusable="false"><use href="#lightmd-mark" /></svg><div><strong>LightMD</strong><span>Version 0.0.0</span></div></div><a href="https://github.com/RyanEmslie/lightmd">View source on GitHub ↗</a><a href="https://github.com/RyanEmslie/lightmd/blob/main/CHANGELOG.md">Changelog</a><a href="https://github.com/RyanEmslie/lightmd/blob/main/LICENSE">MIT License</a></div>
           </section>
           <p id="settings-no-results" class="settings-no-results" hidden>No settings match your search.</p>
         </main>
       </div>
     </section>
+    <svg width="0" height="0" style="position: absolute" aria-hidden="true" focusable="false">
+      <defs>
+        <radialGradient id="lightmd-glow-fill" cx="32" cy="32" r="24" gradientUnits="userSpaceOnUse">
+          <stop offset="0" stop-color="#ffe08a" />
+          <stop offset="0.45" stop-color="#ffc24b" />
+          <stop offset="0.72" stop-color="#f29a2e" />
+          <stop offset="1" stop-color="#f29a2e" stop-opacity="0" />
+        </radialGradient>
+        <!-- The app icon (src-tauri/icons/icon.svg): # in front of a glow, on its tile. -->
+        <symbol id="lightmd-mark" viewBox="0 0 64 64">
+          <rect width="64" height="64" rx="14" fill="#1b1f2a" />
+          <circle cx="32" cy="32" r="24" fill="url(#lightmd-glow-fill)" />
+          <g fill="#1b1f2a">
+            <rect x="24" y="16.5" width="5" height="31" rx="2.5" transform="rotate(12 26.5 32)" />
+            <rect x="35" y="16.5" width="5" height="31" rx="2.5" transform="rotate(12 37.5 32)" />
+            <rect x="16.5" y="24" width="31" height="5" rx="2.5" />
+            <rect x="16.5" y="35" width="31" height="5" rx="2.5" />
+          </g>
+        </symbol>
+        <!-- The same mark without the tile; the # takes the theme's background. -->
+        <symbol id="lightmd-glow" viewBox="0 0 64 64">
+          <circle cx="32" cy="32" r="24" fill="url(#lightmd-glow-fill)" />
+          <g style="fill: var(--bg)">
+            <rect x="24" y="16.5" width="5" height="31" rx="2.5" transform="rotate(12 26.5 32)" />
+            <rect x="35" y="16.5" width="5" height="31" rx="2.5" transform="rotate(12 37.5 32)" />
+            <rect x="16.5" y="24" width="31" height="5" rx="2.5" />
+            <rect x="16.5" y="35" width="31" height="5" rx="2.5" />
+          </g>
+        </symbol>
+      </defs>
+    </svg>
     <nav id="explorer-reopen" aria-label="Sidebar" hidden>
       <button
         type="button"
@@ -1351,6 +1457,7 @@
     <div id="shell">
       <aside id="explorer" class="pane" tabindex="0">
         <div id="layout-bar">
+          <span id="brand"><svg width="16" height="16" aria-hidden="true" focusable="false"><use href="#lightmd-glow" /></svg>LightMD</span>
           <button
             type="button"
             id="settings-open"
@@ -1477,10 +1584,6 @@
           <button type="button" id="name-dialog-ok">Create</button>
           <button type="button" id="name-dialog-cancel">Cancel</button>
         </div>
-        <div id="recent-empty" hidden>
-          <p>Recent folders</p>
-          <ul id="recent-empty-list"></ul>
-        </div>
         <ul id="file-list"></ul>
         <details id="outline" open hidden>
           <summary>Outline</summary>
@@ -1507,6 +1610,16 @@
         <div id="editor-chrome"></div>
         <div id="frontmatter" hidden></div>
         <div id="editor-view"></div>
+        <div id="welcome">
+          <svg class="welcome-mark" width="88" height="88" aria-hidden="true" focusable="false"><use href="#lightmd-glow" /></svg>
+          <h2>LightMD</h2>
+          <p id="welcome-hint">Open a folder of Markdown or HTML files to start.</p>
+          <button type="button" id="welcome-open">Open Folder</button>
+          <div id="recent-empty" hidden>
+            <p>Recent folders</p>
+            <ul id="recent-empty-list"></ul>
+          </div>
+        </div>
         <div class="splitter" role="separator" aria-orientation="vertical"></div>
       </main>
       <section id="preview" class="pane" tabindex="0">
@@ -1520,7 +1633,11 @@
             Warning: JavaScript is on
           </p>
         </div>
-        <div id="preview-body">Preview</div>
+        <div id="preview-body"></div>
+        <div id="preview-empty">
+          <svg width="96" height="96" aria-hidden="true" focusable="false"><use href="#lightmd-glow" /></svg>
+          <span>Preview appears as you type</span>
+        </div>
         <iframe id="html-viewer" sandbox hidden></iframe>
       </section>
     </div>
@@ -1533,6 +1650,8 @@
       (function () {
         const button = document.getElementById("open-folder");
         const newNoteButton = document.getElementById("new-note");
+        const welcomeOpen = document.getElementById("welcome-open");
+        if (welcomeOpen) welcomeOpen.addEventListener("click", () => button && button.click());
         const newFolderButton = document.getElementById("new-folder");
         const dirtyDot = document.getElementById("dirty");
         const statusPath = document.getElementById("status-path");
@@ -1942,6 +2061,7 @@
         function setWorkspaceRoot(root) {
           workspacePath = root;
           emit("lightmd:workspace-changed", { root });
+          if (!activeTab) showWelcome(true);
         }
 
         function fileNameOf(relative) {
@@ -2011,6 +2131,19 @@
         function setEditorSession(active) {
           if (window.lightmdEditor && typeof window.lightmdEditor.setEditable === "function") {
             window.lightmdEditor.setEditable(!!active);
+          }
+          showWelcome(!active);
+        }
+
+        // The welcome screen covers the editor while no document is open.
+        function showWelcome(show) {
+          const welcome = document.getElementById("welcome");
+          if (welcome) welcome.hidden = !show;
+          const hint = document.getElementById("welcome-hint");
+          if (hint) {
+            hint.textContent = workspacePath
+              ? "Pick a file from the sidebar, or start a new note."
+              : "Open a folder of Markdown or HTML files to start.";
           }
         }
 
