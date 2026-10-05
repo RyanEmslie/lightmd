@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="1000" viewBox="0 0 1600 1000">
+  <!-- Placeholder: replace with a real screenshot (docs/screenshot.png) and update README.md. -->
+  <rect width="1600" height="1000" rx="24" fill="#1b1f2a"/>
+  <rect x="0" y="0" width="1600" height="56" rx="24" fill="#232838"/>
+  <circle cx="40" cy="28" r="9" fill="#ff5f57"/><circle cx="70" cy="28" r="9" fill="#febc2e"/><circle cx="100" cy="28" r="9" fill="#28c840"/>
+  <rect x="0" y="56" width="380" height="944" fill="#20253a"/>
+  <line x1="990" y1="56" x2="990" y2="1000" stroke="#2c3242" stroke-width="2"/>
+  <text x="800" y="500" fill="#9aa1b1" font-family="Helvetica, Arial, sans-serif" font-size="44" text-anchor="middle">Screenshot coming soon</text>
+</svg>
