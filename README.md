@@ -70,7 +70,7 @@ For Fedora, Arch and other distributions, see [Tauri's Linux prerequisites](http
 ### 2. Build
 
 ```sh
-git clone https://github.com/clearly-bots/lightmd
+git clone https://github.com/RyanEmslie/lightmd
 cd lightmd
 npm install
 npm run tauri build

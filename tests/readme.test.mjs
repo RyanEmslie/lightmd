@@ -52,7 +52,7 @@ test("Linux prerequisites: rustup not Debian's rustc, and the Tauri 2 packages",
 
 test("build steps clone the repo and use the package scripts", () => {
   const install = section("Install");
-  assert.match(install, /git clone https:\/\/github\.com\/clearly-bots\/lightmd/);
+  assert.match(install, /git clone https:\/\/github\.com\/RyanEmslie\/lightmd/);
   assert.match(install, /npm install/);
   assert.match(install, /npm run tauri build/);
   const scripts = JSON.parse(read("package.json")).scripts;

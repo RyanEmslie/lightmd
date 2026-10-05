@@ -79,12 +79,12 @@ function isHttpsGithubLightmdLicenseUrl(href) {
   const host = url.hostname.toLowerCase();
   const path = url.pathname.replace(/\/+$/, "");
   if (host === "github.com") {
-    return /^\/clearly-bots\/lightmd\/(?:blob|raw)\/[^/]+\/LICENSE$/i.test(
+    return /^\/RyanEmslie\/lightmd\/(?:blob|raw)\/[^/]+\/LICENSE$/i.test(
       path,
     );
   }
   if (host === "raw.githubusercontent.com") {
-    return /^\/clearly-bots\/lightmd\/[^/]+\/LICENSE$/i.test(path);
+    return /^\/RyanEmslie\/lightmd\/[^/]+\/LICENSE$/i.test(path);
   }
   return false;
 }
@@ -146,6 +146,6 @@ test("about MIT href resolves from the running app", () => {
 
   assert.ok(
     githubLicense || relativeResolves || shippedUnderFrontendDist,
-    `About MIT <a> href must resolve from the running app (frontendDist is src/; relative href=${JSON.stringify(href)} is not resolvable without src/LICENSE). Use an https URL to github.com/clearly-bots/lightmd LICENSE (blob/main/LICENSE or raw) or ship LICENSE under src/.`,
+    `About MIT <a> href must resolve from the running app (frontendDist is src/; relative href=${JSON.stringify(href)} is not resolvable without src/LICENSE). Use an https URL to github.com/RyanEmslie/lightmd LICENSE (blob/main/LICENSE or raw) or ship LICENSE under src/.`,
   );
 });

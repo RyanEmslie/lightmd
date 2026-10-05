@@ -1688,8 +1688,8 @@ mod tests {
         // The hook also fires for HTML preview iframes, so a remote iframe or meta
         // refresh in an untrusted file must be cancelled, never handed to a browser.
         for external in [
-            "https://github.com/clearly-bots/lightmd",
-            "https://github.com/clearly-bots/lightmd/blob/main/LICENSE",
+            "https://github.com/RyanEmslie/lightmd",
+            "https://github.com/RyanEmslie/lightmd/blob/main/LICENSE",
             "http://example.com/",
             "http://localhost:1420/",
         ] {

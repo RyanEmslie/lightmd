@@ -16,8 +16,8 @@ test("Settings > About links open in the system browser, not in the app window",
   const links = [...rt.el("settings-about").querySelectorAll("a[href]")];
   const hrefs = links.map((a) => a.getAttribute("href"));
   assert.deepEqual(hrefs, [
-    "https://github.com/clearly-bots/lightmd",
-    "https://github.com/clearly-bots/lightmd/blob/main/LICENSE",
+    "https://github.com/RyanEmslie/lightmd",
+    "https://github.com/RyanEmslie/lightmd/blob/main/LICENSE",
   ]);
   for (const link of links) {
     const navigated = link.click();
