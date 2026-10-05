@@ -350,7 +350,7 @@ export function setTheme(name) {
   if (!resolved) return;
   theme.name = resolved;
   applyTheme();
-  syncThemeSelects(name);
+  syncThemeSelects(resolved);
   try {
     globalThis.lightmdPersistSession?.({ theme: name });
   } catch {

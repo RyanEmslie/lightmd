@@ -3,6 +3,7 @@ import { existsSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { test } from "node:test";
+import { buildTauriGlobals, createInvoke } from "./helpers/tauri.mjs";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const srcDir = join(root, "src");
@@ -99,20 +100,9 @@ async function dispatchPreviewClick(href) {
     "missing handlePreviewClick / bindPreviewLinks (or openPreviewLink click path)",
   );
 
-  const openerCalls = [];
+  const backend = createInvoke();
   const prevTauri = globalThis.__TAURI__;
-  globalThis.__TAURI__ = {
-    opener: {
-      openUrl(url) {
-        openerCalls.push(url);
-      },
-    },
-    core: {
-      invoke(cmd, args) {
-        openerCalls.push(args?.url ?? cmd);
-      },
-    },
-  };
+  globalThis.__TAURI__ = buildTauriGlobals(backend.invoke).__TAURI__;
 
   const anchor = makeAnchor(href);
   const event = makeClickEvent(anchor);
@@ -129,6 +119,8 @@ async function dispatchPreviewClick(href) {
     else globalThis.__TAURI__ = prevTauri;
   }
 
+  // Any IPC call counts: opener.openUrl and core.invoke both end up here.
+  const openerCalls = backend.invokes.map((call) => call.args?.url ?? call.cmd);
   return {
     preventDefaultCalls: event.preventDefaultCalls,
     defaultPrevented: event.defaultPrevented,

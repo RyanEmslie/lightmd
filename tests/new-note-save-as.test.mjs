@@ -1,13 +1,12 @@
 import assert from "node:assert/strict";
-import { existsSync, readdirSync, readFileSync } from "node:fs";
-import { dirname, join } from "node:path";
-import { fileURLToPath, pathToFileURL } from "node:url";
+import { existsSync } from "node:fs";
+import { join } from "node:path";
+import { pathToFileURL } from "node:url";
 import { test } from "node:test";
-import { loadSourceText } from "./helpers/source.mjs";
-
-const root = join(dirname(fileURLToPath(import.meta.url)), "..");
-const srcDir = join(root, "src");
-const htmlPath = join(srcDir, "index.html");
+import { bootApp } from "./helpers/app.mjs";
+import { installFakeTimers } from "./helpers/dom.mjs";
+import { loadHtml, loadSourceText, srcDir } from "./helpers/source.mjs";
+import { isEscapingRelative, normalizeRel } from "./helpers/tauri.mjs";
 
 const FOLDER = "/tmp/lightmd-new-note-ws";
 const FILE_A = "note.md";
@@ -19,9 +18,9 @@ const EXISTING_BODY = "already on disk — must not clobber silently\n";
 const FRESH_REL = "fresh.md";
 const PLAIN_NAME = "untitled-plain";
 const ESCAPE_REL = "../outside.md";
+const OTHER_FOLDER = "/tmp/lightmd-other-folder";
+const OTHER_BODY = "already in the other folder — must not clobber silently\n";
 
-const NEW_NOTE_IDS = ["new-note", "new_note", "newNote"];
-const SAVE_AS_IDS = ["save-as", "save_as", "saveAs"];
 const NEW_NOTE_FNS = [
   "lightmdNewNote",
   "newNote",
@@ -31,27 +30,9 @@ const NEW_NOTE_FNS = [
 const SAVE_AS_FNS = ["lightmdSaveAs", "saveAs", "saveNoteAs"];
 const NOTE_MODULES = ["new-note.js", "note.js", "notes.js", "save-as.js"];
 
-installStubGlobals();
-
-const { cancelAutosave, scheduleAutoSave } = await import(
-  pathToFileURL(join(srcDir, "autosave.js")).href
-);
+const { renderPreview } = await import("../src/preview.js");
 
 const apiModules = await loadApiModules();
-
-function installStubGlobals() {
-  if (!globalThis.document) {
-    globalThis.document = {
-      getElementById() {
-        return null;
-      },
-      createElement() {
-        return { style: {}, classList: { add() {}, remove() {} }, dataset: {} };
-      },
-    };
-  }
-  if (!globalThis.window) globalThis.window = globalThis;
-}
 
 async function loadApiModules() {
   const apis = {};
@@ -70,19 +51,6 @@ async function loadApiModules() {
 
 function loadSources() {
   return loadSourceText();
-}
-
-function loadHtml() {
-  assert.equal(existsSync(htmlPath), true, "src/index.html must exist");
-  return readFileSync(htmlPath, "utf8");
-}
-
-function inlineScripts(html) {
-  const out = [];
-  const re = /<script\b(?![^>]*\bsrc\b)[^>]*>([\s\S]*?)<\/script>/gi;
-  let m;
-  while ((m = re.exec(html))) out.push(m[1]);
-  return out;
 }
 
 function hasNewNoteControl(src) {
@@ -106,217 +74,6 @@ function hasNewNoteControl(src) {
   return false;
 }
 
-function memoryStorage() {
-  const map = new Map();
-  return {
-    getItem(key) {
-      const k = String(key);
-      return map.has(k) ? map.get(k) : null;
-    },
-    setItem(key, value) {
-      map.set(String(key), String(value));
-    },
-    removeItem(key) {
-      map.delete(String(key));
-    },
-    clear() {
-      map.clear();
-    },
-    key(index) {
-      return [...map.keys()][index] ?? null;
-    },
-    get length() {
-      return map.size;
-    },
-  };
-}
-
-function mockEl(id, tag = "div") {
-  const listeners = {};
-  const el = {
-    id,
-    tagName: String(tag).toUpperCase(),
-    nodeName: String(tag).toUpperCase(),
-    value: tag === "select" ? "name" : tag === "textarea" ? "" : "",
-    checked: tag === "input",
-    hidden: id === "dirty" || id === "html-viewer",
-    disabled: false,
-    textContent: "",
-    innerHTML: "",
-    title: "",
-    className: "",
-    children: [],
-    parentNode: null,
-    dataset: {},
-    attributes: {},
-    style: {},
-    classList: {
-      add() {},
-      remove() {},
-      toggle() {},
-      contains() {
-        return false;
-      },
-    },
-    addEventListener(type, fn) {
-      if (typeof fn !== "function") return;
-      (listeners[String(type)] ||= []).push(fn);
-    },
-    removeEventListener(type, fn) {
-      const list = listeners[String(type)];
-      if (!list) return;
-      const i = list.indexOf(fn);
-      if (i >= 0) list.splice(i, 1);
-    },
-    dispatchEvent(event) {
-      const type = event?.type ?? event;
-      const ev =
-        event && typeof event === "object"
-          ? event
-          : { type, target: el, preventDefault() {}, stopPropagation() {} };
-      if (ev.target == null) ev.target = el;
-      ev.currentTarget = el;
-      const results = [];
-      for (const fn of listeners[String(type)] || []) {
-        results.push(fn.call(el, ev));
-      }
-      el._lastDispatch = results;
-      return true;
-    },
-    click() {
-      return el.dispatchEvent({
-        type: "click",
-        bubbles: true,
-        target: el,
-        preventDefault() {},
-        stopPropagation() {},
-      });
-    },
-    appendChild(child) {
-      child.parentNode = el;
-      el.children.push(child);
-      return child;
-    },
-    append(...nodes) {
-      for (const n of nodes) el.appendChild(n);
-    },
-    replaceChildren(...nodes) {
-      for (const c of el.children) c.parentNode = null;
-      el.children = [];
-      el.innerHTML = "";
-      el.textContent = "";
-      for (const n of nodes) el.appendChild(n);
-    },
-    insertAdjacentHTML(position, html) {
-      const chunk = String(html ?? "");
-      if (String(position) === "afterbegin") {
-        el.innerHTML = chunk + String(el.innerHTML || "");
-      } else {
-        el.innerHTML = String(el.innerHTML || "") + chunk;
-      }
-    },
-    contains(node) {
-      if (node === el) return true;
-      for (const c of el.children) {
-        if (c === node || (typeof c.contains === "function" && c.contains(node))) {
-          return true;
-        }
-      }
-      return false;
-    },
-    closest(sel) {
-      const want = String(sel || "");
-      let n = el;
-      while (n) {
-        if (want.startsWith("#") && n.id === want.slice(1)) return n;
-        if (n.tagName === want.toUpperCase()) return n;
-        n = n.parentNode;
-      }
-      return null;
-    },
-    setAttribute(name, value) {
-      const key = String(name);
-      el.attributes[key] = String(value);
-      if (key === "id") el.id = String(value);
-      if (key === "hidden") el.hidden = true;
-      if (key === "title") el.title = String(value);
-      if (key.startsWith("data-")) {
-        const dk = key.slice(5).replace(/-([a-z])/g, (_, c) => c.toUpperCase());
-        el.dataset[dk] = String(value);
-      }
-    },
-    getAttribute(name) {
-      return Object.prototype.hasOwnProperty.call(el.attributes, name)
-        ? el.attributes[name]
-        : null;
-    },
-    removeAttribute(name) {
-      delete el.attributes[name];
-      if (name === "hidden") el.hidden = false;
-      if (name === "title") el.title = "";
-    },
-    querySelector(sel) {
-      const all = el.querySelectorAll(sel);
-      return all[0] ?? null;
-    },
-    querySelectorAll(sel) {
-      const want = String(sel || "");
-      const out = [];
-      const walk = (node) => {
-        for (const c of node.children || []) {
-          if (want.startsWith("#") && c.id === want.slice(1)) out.push(c);
-          else if (want.startsWith(".") && String(c.className || "").split(/\s+/).includes(want.slice(1))) {
-            out.push(c);
-          } else if (c.tagName === want.toUpperCase()) out.push(c);
-          walk(c);
-        }
-      };
-      walk(el);
-      return out;
-    },
-  };
-  return el;
-}
-
-async function clickAndAwait(el) {
-  el.click();
-  const results = el._lastDispatch || [];
-  await Promise.all(results.filter((r) => r && typeof r.then === "function"));
-}
-
-function installFakeTimers() {
-  const origSet = globalThis.setTimeout;
-  const origClear = globalThis.clearTimeout;
-  const pending = new Map();
-  let nextId = 1;
-  globalThis.setTimeout = function (fn, _ms, ...args) {
-    const id = nextId++;
-    pending.set(id, { fn, args });
-    return id;
-  };
-  globalThis.clearTimeout = function (id) {
-    pending.delete(id);
-  };
-  return {
-    async flush() {
-      const jobs = [...pending.values()];
-      pending.clear();
-      await Promise.all(
-        jobs.map((job) => Promise.resolve().then(() => job.fn(...job.args))),
-      );
-    },
-    restore() {
-      globalThis.setTimeout = origSet;
-      globalThis.clearTimeout = origClear;
-      pending.clear();
-    },
-  };
-}
-
-function normalizeRel(value) {
-  return String(value ?? "").replace(/\\/g, "/");
-}
-
 function isUnbound(relative) {
   return relative == null || relative === "" || relative === false;
 }
@@ -330,23 +87,6 @@ function pathShows(text, relative) {
   const r = normalizeRel(relative);
   if (!r) return false;
   return t === r || t.endsWith(r) || t.includes(r);
-}
-
-function isEscapingRelative(relative) {
-  const n = normalizeRel(relative);
-  if (!n) return false;
-  if (n.startsWith("/") || /^[A-Za-z]:/.test(n)) return true;
-  let depth = 0;
-  for (const part of n.split("/")) {
-    if (!part || part === ".") continue;
-    if (part === "..") {
-      depth -= 1;
-      if (depth < 0) return true;
-      continue;
-    }
-    depth += 1;
-  }
-  return false;
 }
 
 function hasMdExtension(relative) {
@@ -393,226 +133,33 @@ function resolveSaveAs(rt) {
 }
 
 function boot() {
-  cancelAutosave();
-  const storage = memoryStorage();
-
-  const prevDoc = globalThis.document;
-  const prevWin = globalThis.window;
-  const prevLs = globalThis.localStorage;
-  const prevTauri = globalThis.__TAURI__;
-  const prevConfirm = globalThis.confirm;
-
-  const byId = new Map();
-  const tagById = {
-    "open-folder": "button",
-    save: "button",
-    dirty: "span",
-    "status-path": "span",
-    "status-strip": "footer",
-    "file-list": "ul",
-    "editor-buffer": "textarea",
-    "explorer-sort": "select",
-    "show-extensions": "input",
-    "preview-body": "div",
-    preview: "section",
-    "html-viewer": "iframe",
+  const rt = bootApp({
+    folderPath: FOLDER,
+    files: { [FILE_A]: BODY_A, [EXISTING_REL]: EXISTING_BODY },
+    workspaces: { [OTHER_FOLDER]: { files: { [FRESH_REL]: OTHER_BODY } } },
+    dialog: { save: `${FOLDER}/${FRESH_REL}` },
+    realAutosave: true,
+  });
+  // Like editor.js setDoc(): load the text and re-render the preview.
+  rt.win.lightmdEditor.setDoc = function (text) {
+    const v = text ?? "";
+    rt.state.setDocCalls.push(v);
+    rt.el("editor-buffer").value = v;
+    const preview = rt.el("preview-body");
+    preview.replaceChildren();
+    preview.insertAdjacentHTML("afterbegin", renderPreview(v));
   };
-
-  function el(id) {
-    const key = String(id);
-    if (!byId.has(key)) byId.set(key, mockEl(key, tagById[key] || "div"));
-    return byId.get(key);
-  }
-
-  for (const id of NEW_NOTE_IDS) tagById[id] = "button";
-  for (const id of SAVE_AS_IDS) tagById[id] = "button";
-  for (const id of Object.keys(tagById)) el(id);
-  el("show-extensions").checked = true;
-  el("explorer-sort").value = "name";
-  el("dirty").hidden = true;
-  el("editor-buffer").value = "";
-  el("status-path").textContent = "";
-  el("preview-body").textContent = "";
-  el("html-viewer").hidden = true;
-
-  const writes = [];
-  const attemptedWrites = [];
-  const invokes = [];
-  const confirms = [];
-  const state = {
-    cancelCalls: 0,
-    scheduleCalls: 0,
-    setDocCalls: [],
-    confirmResult: false,
-  };
-  const files = new Map([
-    [FILE_A, BODY_A],
-    [EXISTING_REL, EXISTING_BODY],
-  ]);
-
-  const doc = {
-    documentElement: mockEl("html", "html"),
-    body: mockEl("body", "body"),
-    getElementById(id) {
-      return el(id);
-    },
-    querySelector(sel) {
-      const m = String(sel || "").match(/^#([\w-]+)$/);
-      return m ? el(m[1]) : null;
-    },
-    querySelectorAll() {
-      return [];
-    },
-    createElement(tag) {
-      return mockEl("", tag);
-    },
-  };
-
-  const win = { document: doc };
-
-  function confirmLike(message) {
-    confirms.push(String(message ?? ""));
-    return state.confirmResult;
-  }
-
-  win.confirm = confirmLike;
-  globalThis.confirm = confirmLike;
-
-  win.__TAURI__ = {
-    core: {
-      async invoke(cmd, args = {}) {
-        invokes.push({ cmd, args });
-        if (cmd === "list_workspace") {
-          return [...files.keys()].map((relative_path) => ({
-            relative_path,
-            is_dir: false,
-          }));
-        }
-        if (cmd === "read_workspace_file") {
-          const rel = normalizeRel(args.relative);
-          if (isEscapingRelative(rel) || !files.has(rel)) {
-            throw new Error(`read_workspace_file: missing ${rel}`);
-          }
-          return files.get(rel);
-        }
-        if (
-          cmd === "write_workspace_file" ||
-          cmd === "write_file" ||
-          cmd === "write"
-        ) {
-          const record = {
-            cmd,
-            path: args.path,
-            relative: args.relative,
-            contents: args.contents,
-          };
-          attemptedWrites.push(record);
-          const rel = normalizeRel(args.relative);
-          if (isEscapingRelative(rel)) {
-            throw new Error("path is outside workspace root");
-          }
-          files.set(rel, String(args.contents ?? ""));
-          writes.push(record);
-          return;
-        }
-        if (
-          cmd === "workspace_file_exists" ||
-          cmd === "file_exists" ||
-          cmd === "exists"
-        ) {
-          return files.has(normalizeRel(args.relative ?? args.path ?? ""));
-        }
-        return null;
-      },
-    },
-    dialog: {
-      async open() {
-        return FOLDER;
-      },
-      async save() {
-        return `${FOLDER}/${FRESH_REL}`;
-      },
-      async ask(message) {
-        return confirmLike(message);
-      },
-      async confirm(message) {
-        return confirmLike(message);
-      },
-    },
-  };
-
-  win.lightmdCancelAutosave = function () {
-    state.cancelCalls += 1;
-    cancelAutosave();
-  };
-  win.lightmdScheduleAutoSave = function () {
-    state.scheduleCalls += 1;
-    scheduleAutoSave();
-  };
-  win.lightmdEditor = {
-    editable: false,
-    setDoc(text) {
-      const v = text ?? "";
-      state.setDocCalls.push(v);
-      el("editor-buffer").value = v;
-      const preview = el("preview-body");
-      preview.replaceChildren();
-      preview.innerHTML = v ? `<p>${v}</p>` : "";
-      preview.textContent = v;
-    },
-    setEditable(on) {
-      win.lightmdEditor.editable = !!on;
-    },
-  };
-
-  globalThis.document = doc;
-  globalThis.window = win;
-  globalThis.localStorage = storage;
-  globalThis.__TAURI__ = win.__TAURI__;
-
-  const scripts = inlineScripts(loadHtml());
-  assert.ok(scripts.length > 0, "src/index.html must contain an inline script");
-  for (const script of scripts) {
-    const run = new Function(script);
-    run();
-  }
-
   assert.equal(
-    typeof win.lightmdOpenFolder,
+    typeof rt.win.lightmdOpenFolder,
     "function",
     "missing applyFolder (window.lightmdOpenFolder)",
   );
   assert.equal(
-    typeof win.lightmdOpenFile,
+    typeof rt.win.lightmdOpenFile,
     "function",
     "missing applyFile (window.lightmdOpenFile)",
   );
-
-  function cleanup() {
-    cancelAutosave();
-    globalThis.document = prevDoc;
-    globalThis.window = prevWin;
-    globalThis.localStorage = prevLs;
-    if (prevConfirm === undefined) delete globalThis.confirm;
-    else globalThis.confirm = prevConfirm;
-    if (prevTauri === undefined) delete globalThis.__TAURI__;
-    else globalThis.__TAURI__ = prevTauri;
-  }
-
-  return {
-    win,
-    doc,
-    el,
-    writes,
-    attemptedWrites,
-    invokes,
-    confirms,
-    files,
-    state,
-    storage,
-    mod: apiModules,
-    cleanup,
-  };
+  return Object.assign(rt, { mod: apiModules });
 }
 
 async function openFolderAndFile(rt) {
@@ -740,6 +287,8 @@ test("without Save As, Save and autosave must not call write_workspace_file inve
   const rt = boot();
   const timers = installFakeTimers();
   try {
+    // Save on a new note opens the Save As picker; here the user cancels it.
+    rt.backend.dialog.save = null;
     await openFolderAndFile(rt);
     await invokeNewNote(rt);
 
@@ -762,6 +311,10 @@ test("without Save As, Save and autosave must not call write_workspace_file inve
     await timers.flush();
 
     const newWrites = rt.writes.slice(writesBefore);
+    assert.ok(
+      rt.dialogs.some((d) => d.kind === "save"),
+      "Save on a new note must ask where to save it (Save As picker)",
+    );
     assert.equal(
       newWrites.length,
       0,
@@ -951,6 +504,34 @@ test("saveAs does not clobber an existing file without confirm, or picker/API re
       asked || rejected,
       "one clear rule: confirm before overwrite OR picker/API rejects clobber (got silent success)",
     );
+  } finally {
+    rt.cleanup();
+  }
+});
+
+test("saveAs into another folder asks before overwriting the file there", async () => {
+  const rt = boot();
+  try {
+    await openFolderAndFile(rt);
+    await invokeNewNote(rt);
+    rt.el("editor-buffer").value = "draft meant for the other folder\n";
+    rt.state.confirmResult = false;
+    rt.backend.dialog.save = `${OTHER_FOLDER}/${FRESH_REL}`;
+
+    const saveAs = resolveSaveAs(rt);
+    assert.ok(typeof saveAs === "function", "missing saveAs()");
+    await saveAs();
+
+    assert.ok(
+      rt.confirms.some((message) => message.includes(FRESH_REL)),
+      "Save As must check the folder it writes to and confirm before overwriting",
+    );
+    assert.equal(
+      rt.backend.read(OTHER_FOLDER, FRESH_REL),
+      OTHER_BODY,
+      "cancelling the confirm must leave the other folder's file untouched",
+    );
+    assert.equal(rt.files.has(FRESH_REL), false, "nothing may land in the workspace instead");
   } finally {
     rt.cleanup();
   }

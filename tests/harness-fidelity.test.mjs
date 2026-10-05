@@ -1,0 +1,381 @@
+import assert from "node:assert/strict";
+import { describe, test } from "node:test";
+import { bootApp } from "./helpers/app.mjs";
+import { createDocument, mockEl } from "./helpers/dom.mjs";
+import { KNOWN_COMMANDS, buildTauriGlobals, createInvoke } from "./helpers/tauri.mjs";
+
+// The fakes in tests/helpers must behave like the real Tauri backend and the
+// real DOM, or app bugs hide behind them. These tests pin that fidelity.
+
+async function rejection(promise) {
+  try {
+    await promise;
+  } catch (err) {
+    return err;
+  }
+  assert.fail("expected the promise to reject");
+}
+
+describe("fake Tauri backend mirrors the real one", () => {
+  test("unknown commands reject like real Tauri", async () => {
+    const { invoke } = createInvoke();
+    assert.equal(await rejection(invoke("write_file", {})), "Command write_file not found");
+    assert.equal(await rejection(invoke("exists", {})), "Command exists not found");
+  });
+
+  test("exports one known-command list with the Rust and plugin commands", () => {
+    assert.ok(Array.isArray(KNOWN_COMMANDS));
+    for (const cmd of [
+      "list_workspace",
+      "read_workspace_file",
+      "write_workspace_file",
+      "read_workspace_image",
+      "create_workspace_folder",
+      "workspace_file_exists",
+      "plugin:dialog|open",
+      "plugin:dialog|save",
+      "plugin:dialog|message",
+      "plugin:opener|open_url",
+    ]) {
+      assert.ok(KNOWN_COMMANDS.includes(cmd), `KNOWN_COMMANDS must include ${cmd}`);
+    }
+  });
+
+  test("reads honour args.path: the same relative under two roots is two files", async () => {
+    const { invoke } = createInvoke({
+      root: "/ws/a",
+      files: { "note.md": "A" },
+      workspaces: { "/ws/b": { files: { "note.md": "B" } } },
+    });
+    assert.equal(await invoke("read_workspace_file", { path: "/ws/a", relative: "note.md" }), "A");
+    assert.equal(await invoke("read_workspace_file", { path: "/ws/b", relative: "note.md" }), "B");
+  });
+
+  test("a write under a different root lands under that root, not the workspace", async () => {
+    const backend = createInvoke({
+      root: "/ws/a",
+      files: { "note.md": "A" },
+      workspaces: { "/elsewhere": {} },
+    });
+    await backend.invoke("write_workspace_file", {
+      path: "/elsewhere",
+      relative: "note.md",
+      contents: "moved",
+    });
+    assert.equal(backend.files.get("note.md"), "A", "the workspace copy must be untouched");
+    assert.equal(backend.read("/elsewhere", "note.md"), "moved");
+  });
+
+  test("listings honour args.path and list folders and md/html files like Rust", async () => {
+    const { invoke } = createInvoke({
+      root: "/ws/a",
+      files: { "b.md": "", "notes/nested.md": "", "img.png": { bytes: [1] }, "Page.HTML": "" },
+      workspaces: { "/ws/b": { files: { "other.md": "" } } },
+    });
+    assert.deepEqual(await invoke("list_workspace", { path: "/ws/a" }), [
+      { relative_path: "b.md", is_dir: false },
+      { relative_path: "notes", is_dir: true },
+      { relative_path: "notes/nested.md", is_dir: false },
+      { relative_path: "Page.HTML", is_dir: false },
+    ]);
+    assert.deepEqual(await invoke("list_workspace", { path: "/ws/b" }), [
+      { relative_path: "other.md", is_dir: false },
+    ]);
+  });
+
+  test("read_workspace_image answers raw bytes as an ArrayBuffer, like tauri::ipc::Response", async () => {
+    const { invoke } = createInvoke({ root: "/ws", files: { "pic.png": { bytes: [0x89, 0x50, 0xfe] } } });
+    const bytes = await invoke("read_workspace_image", { path: "/ws", relative: "pic.png" });
+    assert.ok(bytes instanceof ArrayBuffer, "image bytes must arrive as an ArrayBuffer, not a number[]");
+    assert.deepEqual([...new Uint8Array(bytes)], [0x89, 0x50, 0xfe]);
+  });
+
+  test("stat_workspace_file reports size in bytes and modified_ms, and rejects folders", async () => {
+    const { invoke } = createInvoke({
+      root: "/ws",
+      files: { "a.md": "héllo", "pic.png": { bytes: [1, 2, 3] } },
+      folders: ["notes"],
+    });
+    const stat = await invoke("stat_workspace_file", { path: "/ws", relative: "a.md" });
+    assert.deepEqual(Object.keys(stat).sort(), ["modified_ms", "size"]);
+    assert.equal(stat.size, 6, "size is the UTF-8 byte length, like fs::metadata");
+    assert.equal(typeof stat.modified_ms, "number");
+    assert.equal((await invoke("stat_workspace_file", { path: "/ws", relative: "pic.png" })).size, 3);
+    assert.equal(
+      await rejection(invoke("stat_workspace_file", { path: "/ws", relative: "notes" })),
+      "path is not a file",
+    );
+    assert.equal(
+      await rejection(invoke("stat_workspace_file", { path: "/ws", relative: "nope.md" })),
+      "No such file or directory (os error 2)",
+    );
+    assert.equal(
+      await rejection(invoke("stat_workspace_file", { path: "/ws", relative: "../x.md" })),
+      "path is outside workspace root",
+    );
+  });
+
+  test("errors are plain strings, like Rust's String errors", async () => {
+    const { invoke } = createInvoke({ root: "/ws", files: { "a.md": "A" } });
+    const missing = await rejection(invoke("read_workspace_file", { path: "/ws", relative: "nope.md" }));
+    assert.equal(missing, "No such file or directory (os error 2)");
+    const outside = await rejection(
+      invoke("write_workspace_file", { path: "/ws", relative: "../x.md", contents: "" }),
+    );
+    assert.equal(outside, "path is outside workspace root");
+    const noRoot = await rejection(invoke("list_workspace", { path: "/not/there" }));
+    assert.equal(typeof noRoot, "string");
+  });
+
+  test("missing or mistyped args reject like Tauri's argument check", async () => {
+    const { invoke } = createInvoke({ root: "/ws", files: { "a.md": "A" } });
+    const err = await rejection(invoke("read_workspace_file", { root: "/ws", relative: "a.md" }));
+    assert.match(String(err), /missing required key path/);
+    const typed = await rejection(invoke("read_workspace_file", { path: null, relative: "a.md" }));
+    assert.match(String(typed), /invalid type: null, expected a string/);
+  });
+
+  test("writes return modified_ms and stat_workspace_file reports it, like Rust", async () => {
+    const backend = createInvoke({ root: "/ws", files: { "a.md": "héllo" } });
+    const before = await backend.invoke("stat_workspace_file", { path: "/ws", relative: "a.md" });
+    assert.deepEqual(Object.keys(before).sort(), ["modified_ms", "size"]);
+    assert.equal(before.size, 6, "size is in bytes");
+    const written = await backend.invoke("write_workspace_file", {
+      path: "/ws",
+      relative: "a.md",
+      contents: "new",
+    });
+    assert.equal(typeof written, "number");
+    assert.notEqual(written, before.modified_ms, "a write changes the mtime");
+    const after = await backend.invoke("stat_workspace_file", { path: "/ws", relative: "a.md" });
+    assert.equal(after.modified_ms, written);
+    assert.equal(
+      await rejection(backend.invoke("stat_workspace_file", { path: "/ws", relative: "nope.md" })),
+      "No such file or directory (os error 2)",
+    );
+  });
+
+  test("expectedModifiedMs rejects with conflict: when the file changed on disk", async () => {
+    const backend = createInvoke({ root: "/ws", files: { "a.md": "v1" } });
+    const { modified_ms: seen } = await backend.invoke("stat_workspace_file", {
+      path: "/ws",
+      relative: "a.md",
+    });
+    backend.files.set("a.md", "v2 from another program");
+    const err = await rejection(
+      backend.invoke("write_workspace_file", {
+        path: "/ws",
+        relative: "a.md",
+        contents: "mine",
+        expectedModifiedMs: seen,
+      }),
+    );
+    assert.match(String(err), /^conflict:/);
+    assert.equal(backend.files.get("a.md"), "v2 from another program", "nothing is written");
+    const now = backend.mtime("/ws", "a.md");
+    await backend.invoke("write_workspace_file", {
+      path: "/ws",
+      relative: "a.md",
+      contents: "mine",
+      expectedModifiedMs: now,
+    });
+    assert.equal(backend.files.get("a.md"), "mine", "a matching mtime writes");
+    await backend.invoke("write_workspace_file", {
+      path: "/ws",
+      relative: "new.md",
+      contents: "fresh",
+      expectedModifiedMs: 1,
+    });
+    assert.equal(backend.files.get("new.md"), "fresh", "a missing file is not a conflict");
+    const typed = await rejection(
+      backend.invoke("write_workspace_file", {
+        path: "/ws",
+        relative: "a.md",
+        contents: "x",
+        expectedModifiedMs: "12",
+      }),
+    );
+    assert.match(String(typed), /expected u64/);
+  });
+
+  test("dialog plugin commands answer from the configured dialog state", async () => {
+    const backend = createInvoke({ root: "/ws", dialog: { open: "/ws", confirm: true } });
+    assert.equal(
+      await backend.invoke("plugin:dialog|open", { options: { directory: true } }),
+      "/ws",
+    );
+    assert.equal(
+      await backend.invoke("plugin:dialog|message", { message: "Overwrite?", buttons: "OkCancel" }),
+      "Ok",
+    );
+    backend.dialog.confirm = false;
+    assert.equal(
+      await backend.invoke("plugin:dialog|message", { message: "Again?", buttons: "OkCancel" }),
+      "Cancel",
+    );
+    assert.deepEqual(backend.confirms, ["Overwrite?", "Again?"]);
+  });
+});
+
+describe("window.__TAURI__ from buildTauriGlobals mirrors withGlobalTauri", () => {
+  test("dialog.ask/confirm go through plugin:dialog|message and resolve to booleans", async () => {
+    const backend = createInvoke({ dialog: { confirm: true } });
+    const { dialog } = buildTauriGlobals(backend.invoke).__TAURI__;
+    assert.equal(await dialog.ask("Discard?"), true);
+    backend.dialog.confirm = false;
+    assert.equal(await dialog.confirm("Overwrite?"), false);
+    assert.deepEqual(
+      backend.invokes.map((i) => [i.cmd, i.args.buttons]),
+      [
+        ["plugin:dialog|message", "YesNo"],
+        ["plugin:dialog|message", "OkCancel"],
+      ],
+    );
+  });
+
+  test("onCloseRequested destroys the window unless the listener prevents it", async () => {
+    const backend = createInvoke({ capabilities: ["core:default", "core:window:allow-destroy"] });
+    const { __TAURI__, __TAURI_INTERNALS__ } = buildTauriGlobals(backend.invoke);
+    let prevent = true;
+    await __TAURI__.window.getCurrentWindow().onCloseRequested((event) => {
+      if (prevent) event.preventDefault();
+    });
+    const [listener] = backend.listeners;
+    assert.equal(listener.event, "tauri://close-requested");
+    const close = () =>
+      __TAURI_INTERNALS__.runCallback(listener.handler, { event: listener.event, id: listener.id });
+    await close();
+    assert.deepEqual(backend.windowCalls, [], "a prevented close keeps the window");
+    prevent = false;
+    await close();
+    assert.deepEqual(backend.windowCalls.map((c) => c.cmd), ["destroy"]);
+
+    const denied = createInvoke({ capabilities: ["core:default"] });
+    const api = buildTauriGlobals(denied.invoke).__TAURI__.window;
+    assert.equal(
+      await rejection(api.getCurrentWindow().destroy()),
+      "Command plugin:window|destroy not allowed by ACL",
+      "core:default does not grant destroy",
+    );
+  });
+
+  test("plugin commands are gated by the capabilities, like Tauri's ACL", async () => {
+    const denied = createInvoke({ capabilities: ["core:default", "dialog:default"] });
+    const win = buildTauriGlobals(denied.invoke).__TAURI__.window;
+    const size = new win.LogicalSize(900, 700);
+    assert.equal(
+      await rejection(win.getCurrentWindow().setSize(size)),
+      "Command plugin:window|set_size not allowed by ACL",
+    );
+    assert.equal(await denied.invoke("plugin:dialog|save", { options: {} }), null);
+
+    const allowed = createInvoke({ capabilities: ["core:window:allow-set-size"] });
+    const api = buildTauriGlobals(allowed.invoke).__TAURI__.window;
+    await api.getCurrentWindow().setSize(new api.LogicalSize(900, 700));
+    assert.deepEqual(allowed.windowCalls[0].args.value, { Logical: { width: 900, height: 700 } });
+    assert.equal(
+      await rejection(allowed.invoke("plugin:dialog|open", {})),
+      "Command plugin:dialog|open not allowed by ACL",
+    );
+  });
+});
+
+describe("fake DOM mirrors src/index.html and the real DOM", () => {
+  test("getElementById returns null for ids that are not in the markup", () => {
+    const doc = createDocument();
+    for (const id of ["save", "save-as", "explorer-sort", "theme", "made-up"]) {
+      assert.equal(doc.getElementById(id), null, `#${id} is not in src/index.html`);
+    }
+  });
+
+  test("getElementById returns the parsed markup element with its attributes", () => {
+    const doc = createDocument();
+    const toggle = doc.getElementById("show-extensions");
+    assert.equal(toggle.tagName, "INPUT");
+    assert.equal(toggle.type, "checkbox");
+    assert.equal(toggle.checked, true);
+    assert.equal(doc.getElementById("open-folder").tagName, "BUTTON");
+    assert.equal(doc.getElementById("dirty").hidden, true);
+    assert.ok(doc.getElementById("explorer").contains(doc.getElementById("file-list")));
+  });
+
+  test("runtime-created ids are found once attached, and not while detached", () => {
+    const doc = createDocument();
+    const made = doc.createElement("div");
+    made.id = "runtime-made";
+    assert.equal(doc.getElementById("runtime-made"), null);
+    doc.body.appendChild(made);
+    assert.equal(doc.getElementById("runtime-made"), made);
+  });
+
+  test("closest() supports attribute selectors", () => {
+    const tab = mockEl("", "button");
+    tab.setAttribute("role", "tab");
+    tab.dataset.x = "1";
+    const label = mockEl("", "span");
+    tab.appendChild(label);
+    assert.equal(label.closest('[role="tab"]'), tab);
+    assert.equal(label.closest("button[data-x]"), tab);
+    assert.equal(label.closest('[role="tablist"]'), null);
+  });
+
+  test("insertAdjacentHTML creates real child elements", () => {
+    const host = mockEl("", "div");
+    host.insertAdjacentHTML(
+      "afterbegin",
+      '<h1 id="t">Title</h1><p><img src="a.png" alt="A"><a href="https://x.test">x</a></p>',
+    );
+    assert.equal(host.querySelector("h1").textContent, "Title");
+    assert.equal(host.querySelector("img").getAttribute("src"), "a.png");
+    assert.equal(host.querySelector("a").getAttribute("href"), "https://x.test");
+  });
+
+  test("click events bubble to ancestor listeners", () => {
+    const parent = mockEl("", "ul");
+    const child = mockEl("", "li");
+    parent.appendChild(child);
+    let seen = null;
+    parent.addEventListener("click", (event) => {
+      seen = event.target;
+    });
+    child.click();
+    assert.equal(seen, child);
+  });
+});
+
+describe("bootApp runs the inline app glue against the real markup", () => {
+  test("rt.el() only finds real ids", () => {
+    const rt = bootApp();
+    try {
+      assert.equal(rt.el("save"), null);
+      assert.equal(rt.el("open-folder").tagName, "BUTTON");
+    } finally {
+      rt.cleanup();
+    }
+  });
+
+  test("requestClose() closes a window nothing listens on, and runs listeners otherwise", async () => {
+    const rt = bootApp();
+    try {
+      rt.backend.listeners.length = 0;
+      assert.equal(await rt.requestClose(), true);
+    } finally {
+      rt.cleanup();
+    }
+  });
+
+  test("clicking a tab in the tab strip switches the active file", async () => {
+    const rt = bootApp({ files: { "a.md": "A body", "b.md": "B body" } });
+    try {
+      await rt.win.lightmdOpenFolder(rt.folderPath);
+      await rt.win.lightmdOpenFile("a.md");
+      await rt.win.lightmdOpenFile("b.md");
+      const tabA = rt.el("editor-tabs").querySelector('[data-relative="a.md"]');
+      tabA.querySelector(".tab-name").click();
+      assert.equal(rt.win.lightmdWorkspace.relative, "a.md");
+      assert.equal(rt.el("editor-buffer").value, "A body");
+    } finally {
+      rt.cleanup();
+    }
+  });
+});

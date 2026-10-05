@@ -4,6 +4,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { test } from "node:test";
 import { loadSourceFiles } from "./helpers/source.mjs";
+import { buildTauriGlobals, createInvoke } from "./helpers/tauri.mjs";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const srcDir = join(root, "src");
@@ -11,7 +12,6 @@ const srcDir = join(root, "src");
 const PANE_IDS = ["explorer", "editor", "preview"];
 const REORDER_IDS = String.raw`pane-order|reorder-panes|pane-reorder`;
 const REORDER_DATA = String.raw`data-pane-order|data-reorder-panes`;
-const WINDOW_HELPERS = String.raw`applyWindowSize|setWindowSize`;
 
 
 function loadSources() {
@@ -191,17 +191,6 @@ function bindsReorderPanes(src) {
   return bindBodies.some((body) => /\breorderPanes\s*\(/.test(body));
 }
 
-function restoreAppliesWindowSize(src) {
-  const cleaned = stripComments(src);
-  const bodies = fnBodies(cleaned, "restoreLayout");
-  if (!bodies.length) return false;
-  let blob = bodies.join("\n");
-  if (new RegExp(String.raw`\b(?:${WINDOW_HELPERS})\s*\(`).test(blob)) {
-    blob += `\n${fnBodies(cleaned, WINDOW_HELPERS).join("\n")}`;
-  }
-  return /setSize\s*\(|\bLogicalSize\b|\bPhysicalSize\b/.test(blob);
-}
-
 function getLayoutHasNoMock(src) {
   const bodies = fnBodies(src, "getLayout");
   if (!bodies.length) return false;
@@ -317,12 +306,41 @@ test("status strip stays path dirty word count only (no layout widgets)", () => 
   assert.match(strip.full, /\bid=["']word-count["']/, "status strip must keep word count");
 });
 
-test("restore applies persisted window size (setSize/LogicalSize/PhysicalSize in restore path)", () => {
-  const js = loadJs();
-  assert.ok(
-    restoreAppliesWindowSize(js),
-    "restoreLayout must apply persisted window size via setSize / LogicalSize / PhysicalSize (copying layout.window is not enough)",
+async function restoreWithSavedLayout(saved) {
+  const prevDoc = globalThis.document;
+  const prevLs = globalThis.localStorage;
+  const prevTauri = globalThis.__TAURI__;
+  const backend = createInvoke();
+  globalThis.__TAURI__ = buildTauriGlobals(backend.invoke).__TAURI__;
+  try {
+    installLocalStorage().setItem("lightmd.layout", JSON.stringify(saved));
+    installDocument();
+    const href = pathToFileURL(join(srcDir, "layout.js")).href;
+    await import(`${href}?pane-layout-restore=${Date.now()}-${Math.random()}`);
+    await new Promise((resolve) => setImmediate(resolve));
+    return backend;
+  } finally {
+    globalThis.document = prevDoc;
+    globalThis.localStorage = prevLs;
+    if (prevTauri === undefined) delete globalThis.__TAURI__;
+    else globalThis.__TAURI__ = prevTauri;
+  }
+}
+
+const SAVED_WINDOW = { window: { width: 1234, height: 777 }, remember: true };
+
+test("restore never resizes the window: it opens maximized", async () => {
+  const backend = await restoreWithSavedLayout(SAVED_WINDOW);
+  assert.equal(
+    backend.invokes.some((c) => c.cmd === "plugin:window|set_size"),
+    false,
+    "a saved size must not shrink the maximized window",
   );
+});
+
+test("the main window opens maximized", () => {
+  const conf = JSON.parse(readFileSync(join(srcDir, "..", "src-tauri", "tauri.conf.json"), "utf8"));
+  assert.equal(conf.app.windows[0].maximized, true);
 });
 
 test("chrome control rearranges panes (not API-only)", () => {
@@ -380,7 +398,8 @@ test("reopening a pane after both content panes are hidden restores its grid col
     mod.collapsePane("preview", false);
     assert.equal(
       shell.style.gridTemplateColumns,
-      "minmax(240px, 1fr) minmax(160px, 1fr)",
+      "240px minmax(160px, 1fr)",
+      "beside another pane the explorer keeps a fixed track instead of growing with the window",
     );
     assert.equal(
       panes.get("preview").style.gridColumn,

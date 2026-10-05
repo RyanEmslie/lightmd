@@ -1,22 +1,39 @@
 import { EditorView, keymap, lineNumbers, highlightActiveLine } from "@codemirror/view";
-import { EditorState, Compartment } from "@codemirror/state";
+import { EditorState, Compartment, Prec } from "@codemirror/state";
 import { indentUnit } from "@codemirror/language";
 import { defaultKeymap, history, historyKeymap } from "@codemirror/commands";
 import { markdown, markdownLanguage } from "@codemirror/lang-markdown";
-import { openSearchPanel, searchKeymap } from "@codemirror/search";
+import { openSearchPanel, searchKeymap, searchPanelOpen } from "@codemirror/search";
 import { parseFrontmatter } from "./frontmatter.js";
-import { cancelAutosave, scheduleAutoSave } from "./autosave.js";
 import {
+  autosave,
+  cancelAutosave,
+  clearSaveError,
+  scheduleAutoSave,
+  showSaveError,
+} from "./autosave.js";
+import {
+  applyFindOptionsToSearch,
+  clearFindHighlight,
   findExtension,
   findOptions,
+  onFindOptionsChange,
   openWorkspaceHit,
   runFind,
   searchWorkspace,
 } from "./find.js";
-import { preview as previewConfig, renderPreview, rewritePreviewImages, bindPreviewLinks } from "./preview.js";
+import {
+  preview as previewConfig,
+  renderPreview,
+  rewritePreviewImages,
+  bindPreviewLinks,
+  invalidatePreviewImages,
+} from "./preview.js";
 import { isHtmlFile, showHtmlViewer, hideHtmlViewer } from "./html-viewer.js";
+import { bindOutlineAndScrollSync, updateOutline } from "./outline.js";
+import { bindRecentFolders, refreshEmptyState } from "./recent.js";
 import { applyTheme, setTheme } from "./palettes.js";
-import { restoreLayout } from "./layout.js";
+import "./layout.js";
 import { persistSession, restoreSession } from "./session.js";
 import { editorDefaults, mountSettings } from "./settings.js";
 import { bindKeyboard } from "./keyboard.js";
@@ -28,14 +45,55 @@ const parent = document.getElementById("editor-view");
 const frontmatterEl = document.getElementById("frontmatter");
 const previewBody = document.getElementById("preview-body");
 const previewPane = document.getElementById("preview");
+const htmlViewer = document.getElementById("html-viewer");
 const wordCountEl = document.getElementById("word-count");
 let applyingLoad = false;
+let countedText = null;
 
 function updateWordCount(text) {
   if (!wordCountEl) return;
-  const trimmed = (text ?? "").trim();
+  const value = text ?? "";
+  if (value === countedText) return;
+  countedText = value;
+  const trimmed = value.trim();
   const n = trimmed ? trimmed.split(/\s+/).length : 0;
   wordCountEl.textContent = `${n} words`;
+}
+
+// Typing renders the preview (and word count) once edits pause for
+// RENDER_DEBOUNCE_MS; applyFrontmatter() from a load or save renders at once.
+// A preview whose text and file context are already on screen is not
+// rendered again, and a hidden preview pane is rendered when shown.
+const RENDER_DEBOUNCE_MS = 150;
+let renderTimer = null;
+let renderPending = false;
+let renderPendingPreview = false;
+let shownPreview = null; // { kind, root, dir, text, first } on screen now
+let deferredPreview = null; // { content, lineOffset } for the hidden preview pane
+
+function scheduleRender(updatePreview) {
+  renderPending = true;
+  if (updatePreview) renderPendingPreview = true;
+  if (renderTimer !== null) clearTimeout(renderTimer);
+  renderTimer = setTimeout(flushPreview, RENDER_DEBOUNCE_MS);
+}
+
+function takePendingRender() {
+  if (renderTimer !== null) clearTimeout(renderTimer);
+  renderTimer = null;
+  const pending = renderPending ? { preview: renderPendingPreview } : null;
+  renderPending = false;
+  renderPendingPreview = false;
+  return pending;
+}
+
+// Runs a debounced render now (tests, and a document swap mid-debounce).
+function flushPreview() {
+  const pending = takePendingRender();
+  if (!pending) return;
+  const text = view.state.doc.toString();
+  renderDocument(text, pending.preview);
+  updateWordCount(text);
 }
 
 const wrapCompartment = new Compartment();
@@ -112,7 +170,8 @@ const extensions = [
   keymap.of([...defaultKeymap, ...historyKeymap, ...searchKeymap]),
   markdown({ base: markdownLanguage }),
   theme,
-  fontCompartment.of(editorFontTheme()),
+  // Above the base theme, or its fixed 14px wins over the font setting.
+  Prec.high(fontCompartment.of(editorFontTheme())),
   wrapCompartment.of(wrapExt()),
   lineNumberCompartment.of(lineNumberExt()),
   activeLineCompartment.of(activeLineExt()),
@@ -122,14 +181,20 @@ const extensions = [
     if (update.docChanged) {
       const text = update.state.doc.toString();
       if (buffer) buffer.value = text;
-      applyFrontmatter(text, previewConfig.live);
-      updateWordCount(text);
+      scheduleRender(previewConfig.live);
       if (!applyingLoad) {
         if (typeof window.lightmdSetDirty === "function") {
           window.lightmdSetDirty(true);
         }
         scheduleAutoSave();
       }
+    }
+    const panelOpen = searchPanelOpen(update.state);
+    if (panelOpen !== searchPanelOpen(update.startState)) {
+      // Cmd+F opened: use the Settings options. Find closed: drop the
+      // workspace-search highlight too.
+      if (panelOpen) applyFindOptionsToSearch(update.view);
+      else clearFindHighlight(update.view);
     }
   }),
 ];
@@ -147,35 +212,95 @@ function currentRelative() {
   return ws && ws.relative;
 }
 
-function setPreview(content) {
-  if (isHtmlFile(currentRelative())) {
+function folderOf(relative) {
+  const rel = String(relative || "").replace(/\\/g, "/");
+  return rel.slice(0, rel.lastIndexOf("/") + 1);
+}
+
+function previewShows(next) {
+  const shown = shownPreview;
+  if (
+    !shown ||
+    shown.kind !== next.kind ||
+    shown.root !== next.root ||
+    shown.dir !== next.dir ||
+    shown.text !== next.text ||
+    shown.lineOffset !== next.lineOffset
+  ) {
+    return false;
+  }
+  if (next.kind === "html") return !!htmlViewer && !htmlViewer.hidden;
+  // Something else may have cleared the pane since (closing the last tab).
+  const target = previewBody || previewPane;
+  return !!target && target.firstChild === shown.first && !(previewBody && previewBody.hidden);
+}
+
+// The open document's own folder. After a Save As elsewhere the explorer
+// (ws.path) can show another folder than the one an older tab lives in.
+function docRoot(ws) {
+  return (ws && (ws.root || ws.path)) || null;
+}
+
+// `lineOffset`: lines of frontmatter above `content` in the file, so the
+// preview's data-line attributes match editor lines.
+function setPreview(content, lineOffset = 0) {
+  const ws = window.lightmdWorkspace;
+  const html = isHtmlFile(currentRelative());
+  const next = {
+    kind: html ? "html" : "md",
+    root: docRoot(ws),
+    dir: html ? "" : folderOf(ws && ws.relative),
+    text: content,
+    lineOffset: html ? 0 : lineOffset,
+  };
+  if (previewPane && previewPane.hidden) {
+    deferredPreview = { content, lineOffset };
+    return;
+  }
+  deferredPreview = null;
+  if (previewShows(next)) return;
+  if (html) {
     showHtmlViewer(content);
+    shownPreview = next;
     return;
   }
   hideHtmlViewer();
   const target = previewBody || previewPane;
   if (!target) return;
   target.replaceChildren();
-  target.insertAdjacentHTML("afterbegin", renderPreview(content));
-  const ws = window.lightmdWorkspace;
-  void rewritePreviewImages(target, ws && ws.path, ws && ws.relative);
+  target.insertAdjacentHTML("afterbegin", renderPreview(content, next.lineOffset));
+  shownPreview = { ...next, first: target.firstChild };
+  void rewritePreviewImages(target, docRoot(ws), ws && ws.relative);
 }
 
-function applyFrontmatter(text, updatePreview = true) {
+// Re-reads the images of the markdown preview on screen (after invalidation).
+function refreshPreviewImages() {
+  if (!shownPreview || shownPreview.kind !== "md" || !previewShows(shownPreview)) return;
+  const ws = window.lightmdWorkspace;
+  void rewritePreviewImages(previewBody || previewPane, docRoot(ws), ws && ws.relative);
+}
+
+function renderDocument(text, updatePreview) {
+  const source = String(text ?? "").replace(/\r\n?/g, "\n");
   if (isHtmlFile(currentRelative())) {
     if (frontmatterEl) {
       frontmatterEl.replaceChildren();
       frontmatterEl.hidden = true;
     }
-    if (updatePreview) setPreview(text);
+    if (updatePreview) setPreview(source);
+    updateOutline(null);
     return;
   }
-  const parsed = parseFrontmatter(text);
-  const show = editorDefaults.frontmatter && parsed.hasFrontmatter;
+  const parsed = parseFrontmatter(source);
+  const head = source.slice(0, source.length - parsed.body.length);
+  const lineOffset = head ? head.split("\n").length - 1 : 0;
+  updateOutline(parsed.body, lineOffset);
+  const entries = Object.entries(parsed.frontmatter);
+  const show = editorDefaults.frontmatter && parsed.hasFrontmatter && entries.length > 0;
   if (frontmatterEl) {
     frontmatterEl.replaceChildren();
     if (show) {
-      for (const [key, value] of Object.entries(parsed.frontmatter)) {
+      for (const [key, value] of entries) {
         const row = document.createElement("div");
         const k = document.createElement("span");
         k.className = "fm-key";
@@ -191,23 +316,98 @@ function applyFrontmatter(text, updatePreview = true) {
       frontmatterEl.hidden = true;
     }
   }
-  if (updatePreview) setPreview(parsed.body);
+  if (updatePreview) setPreview(parsed.body, lineOffset);
 }
 
-function setDoc(text) {
-  const next = text ?? "";
+function applyFrontmatter(text, updatePreview = true) {
+  const pending = takePendingRender();
+  renderDocument(text, updatePreview || !!(pending && pending.preview));
+  if (pending) updateWordCount(text);
+}
+
+// Every document (each open tab) gets its own EditorState, so loading a file
+// is never an undoable edit and undo can't reach into another file's history.
+// Background states keep their undo history, selection and scroll position.
+let editableOn = false;
+let activeDocKey = null;
+const docStates = new WeakMap(); // key (e.g. a tab object) -> { state, scroll }
+
+// Each EditorView.theme() adds CSS rules for good, so swaps reuse one theme
+// per font setting.
+let fontTheme = null;
+let fontThemeKey = "";
+function currentFontTheme() {
+  const key = `${editorDefaults.fontSize}/${editorDefaults.lineHeight}`;
+  if (!fontTheme || key !== fontThemeKey) {
+    fontTheme = editorFontTheme();
+    fontThemeKey = key;
+  }
+  return fontTheme;
+}
+
+// Settings may have changed while a state was in the background.
+function withCurrentSettings(state) {
+  return state.update({
+    effects: [
+      fontCompartment.reconfigure(currentFontTheme()),
+      wrapCompartment.reconfigure(wrapExt()),
+      lineNumberCompartment.reconfigure(lineNumberExt()),
+      activeLineCompartment.reconfigure(activeLineExt()),
+      tabCompartment.reconfigure(tabExt()),
+      editableCompartment.reconfigure(EditorView.editable.of(editableOn)),
+    ],
+  }).state;
+}
+
+function freshState(text) {
+  return withCurrentSettings(EditorState.create({ doc: text, extensions }));
+}
+
+function stashActiveDoc() {
+  if (activeDocKey) {
+    docStates.set(activeDocKey, { state: view.state, scroll: view.scrollSnapshot() });
+  }
+}
+
+// setState() runs no update listeners, so render the swapped-in text here.
+function showState(state, scroll) {
   cancelAutosave();
-  applyingLoad = true;
-  try {
-    if (view.state.doc.toString() !== next) {
-      view.dispatch({
-        changes: { from: 0, to: view.state.doc.length, insert: next },
-      });
-    }
-    applyFrontmatter(next);
-    updateWordCount(next);
-  } finally {
-    applyingLoad = false;
+  view.setState(state);
+  if (scroll) view.dispatch({ effects: scroll });
+  const text = state.doc.toString();
+  if (buffer) buffer.value = text;
+  applyFrontmatter(text);
+  updateWordCount(text);
+}
+
+// index.html saves tabs itself and reads the autosave settings.
+window.lightmdAutosave = autosave;
+window.lightmdShowSaveError = showSaveError;
+window.lightmdClearSaveError = clearSaveError;
+
+// Shows `text` as a new document with no undo history.
+function setDoc(text) {
+  stashActiveDoc();
+  activeDocKey = null;
+  showState(freshState(text ?? ""));
+}
+
+// Shows `key`'s own document. Its stashed state comes back when it still holds
+// `text`; otherwise (first show, or reloaded from disk) it starts fresh.
+function showDocument(key, text) {
+  if (key == null) {
+    setDoc(text);
+    return;
+  }
+  const next = String(text ?? "");
+  stashActiveDoc();
+  const kept = docStates.get(key);
+  activeDocKey = key;
+  if (kept && kept.state.doc.toString() === next.replace(/\r\n?/g, "\n")) {
+    showState(withCurrentSettings(kept.state), kept.scroll);
+  } else {
+    docStates.delete(key);
+    showState(freshState(next));
   }
 }
 
@@ -215,9 +415,29 @@ applyFrontmatter(view.state.doc.toString());
 updateWordCount(view.state.doc.toString());
 if (previewBody) bindPreviewLinks(previewBody);
 
+if (previewPane && typeof MutationObserver === "function") {
+  new MutationObserver(() => {
+    if (previewPane.hidden || deferredPreview === null) return;
+    setPreview(deferredPreview.content, deferredPreview.lineOffset);
+  }).observe(previewPane, { attributes: true, attributeFilter: ["hidden"] });
+}
+
+window.addEventListener("lightmd:document-loaded", () => {
+  invalidatePreviewImages();
+  flushPreview();
+  clearFindHighlight(view);
+  // After the loader's own synchronous render, re-read what is on screen.
+  queueMicrotask(refreshPreviewImages);
+});
+
 function applyFind() {
   openSearchPanel(view);
+  applyFindOptionsToSearch(view);
 }
+
+onFindOptionsChange(() => {
+  applyFindOptionsToSearch(view);
+});
 
 const writeSave = window.lightmdSave;
 window.lightmdSave = async () => {
@@ -242,11 +462,12 @@ function yieldToUi() {
   });
 }
 
-function renderWorkspaceHits(hits) {
+function renderWorkspaceHits(hits, root) {
   if (!workspaceResults) return;
   workspaceResults.replaceChildren();
   for (const hit of hits) {
     const item = document.createElement("li");
+    item.dataset.root = root;
     item.dataset.relative = hit.relative;
     item.dataset.from = String(hit.from);
     item.dataset.to = String(hit.to);
@@ -260,6 +481,24 @@ function renderWorkspaceHits(hits) {
     item.append(path, preview);
     workspaceResults.appendChild(item);
   }
+}
+
+// Open tabs are searched as edited, not as saved; the editor's own text wins
+// for the active file.
+function openBuffersForSearch() {
+  const buffers =
+    typeof window.lightmdGetOpenBuffers === "function"
+      ? [...(window.lightmdGetOpenBuffers() || [])]
+      : [];
+  const ws = window.lightmdWorkspace;
+  const root = docRoot(ws);
+  if (root && ws.relative) {
+    const contents = view.state.doc.toString();
+    const active = buffers.find((b) => b.root === root && b.relative === ws.relative);
+    if (active) active.contents = contents;
+    else buffers.push({ root, relative: ws.relative, contents });
+  }
+  return buffers;
 }
 
 async function runWorkspaceFind() {
@@ -286,9 +525,10 @@ async function runWorkspaceFind() {
     fileCap: WORKSPACE_FILE_CAP,
     yieldToUi,
     shouldAbort: () => gen !== workspaceSearchGen,
+    openBuffers: openBuffersForSearch(),
   });
   if (gen !== workspaceSearchGen) return;
-  renderWorkspaceHits(hits);
+  renderWorkspaceHits(hits, root);
   if (workspaceStatus) workspaceStatus.textContent = `${hits.length} results`;
 }
 
@@ -302,11 +542,25 @@ if (workspaceQuery) {
       void runWorkspaceFind();
     }
   });
+  // Clearing the query closes the workspace search: drop its highlight.
+  for (const type of ["input", "search"]) {
+    workspaceQuery.addEventListener(type, () => {
+      if (!workspaceQuery.value) clearFindHighlight(view);
+    });
+  }
 }
+// Results from another workspace would open the wrong file.
+window.addEventListener("lightmd:workspace-changed", () => {
+  workspaceSearchGen += 1;
+  if (workspaceResults) workspaceResults.replaceChildren();
+  if (workspaceStatus) workspaceStatus.textContent = "";
+});
 if (workspaceResults) {
   workspaceResults.addEventListener("click", async (event) => {
     const item = event.target.closest("li");
     if (!item || !workspaceResults.contains(item)) return;
+    const ws = window.lightmdWorkspace;
+    if (item.dataset.root !== String((ws && ws.path) || "")) return;
     const from = Number(item.dataset.from);
     const to = Number(item.dataset.to);
     const line = Number(item.dataset.line);
@@ -368,7 +622,7 @@ function setEditorFont(size, lineHeight) {
   const nextLh = Number(lineHeight);
   if (Number.isFinite(nextSize) && nextSize > 0) editorDefaults.fontSize = nextSize;
   if (Number.isFinite(nextLh) && nextLh > 0) editorDefaults.lineHeight = nextLh;
-  view.dispatch({ effects: fontCompartment.reconfigure(editorFontTheme()) });
+  view.dispatch({ effects: fontCompartment.reconfigure(currentFontTheme()) });
   if (parent && parent.style) {
     parent.style.fontSize = `${editorDefaults.fontSize}px`;
     parent.style.lineHeight = String(editorDefaults.lineHeight);
@@ -381,6 +635,7 @@ function setShowFrontmatter(on) {
 }
 
 function setEditable(on) {
+  editableOn = !!on;
   view.dispatch({
     effects: editableCompartment.reconfigure(EditorView.editable.of(!!on)),
   });
@@ -389,6 +644,7 @@ function setEditable(on) {
 window.lightmdEditor = {
   view,
   setDoc,
+  showDocument,
   setEditable,
   lineNumbers: editorDefaults.lineNumbers,
   setLineWrapping,
@@ -398,11 +654,14 @@ window.lightmdEditor = {
   setSoftTabs,
   setEditorFont,
   setShowFrontmatter,
+  refreshPreview: () => applyFrontmatter(view.state.doc.toString(), true),
+  flushPreview,
 };
+bindOutlineAndScrollSync(view);
+bindRecentFolders();
 window.lightmdScheduleAutoSave = scheduleAutoSave;
 window.lightmdCancelAutosave = cancelAutosave;
-restoreLayout();
-restoreSession();
+restoreSession().then(refreshEmptyState, refreshEmptyState);
 mountSettings();
 try {
   bindKeyboard();

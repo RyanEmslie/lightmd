@@ -622,10 +622,11 @@ function assertRestoredSnapshot(state, snapshot, message) {
     sameTheme(state.theme, snapshot.theme),
     `${message} (theme)`,
   );
-  assert.equal(state.htmlJs, snapshot.htmlJs, `${message} (HTML JS preference)`);
+  // HTML JS is per file and in memory only, so it never comes back on relaunch.
+  assert.notEqual(state.htmlJs, true, `${message} (HTML JS must not be restored)`);
 }
 
-test("relaunch restores last folder, last file, themes, and HTML JS", async () => {
+test("relaunch restores last folder, last file, and themes, but not HTML JS", async () => {
   const prevDoc = globalThis.document;
   const prevLs = globalThis.localStorage;
   try {
@@ -635,7 +636,7 @@ test("relaunch restores last folder, last file, themes, and HTML JS", async () =
       loaded.api &&
         typeof loaded.api.persist === "function" &&
         typeof loaded.api.restore === "function",
-      "missing session restore (persist/restore exports); relaunch must restore last folder, last file, theme, and HTML JS preference",
+      "missing session restore (persist/restore exports); relaunch must restore last folder, last file, and theme",
     );
     const snapshot = sampleSnapshot();
     await callPersist(loaded.api, snapshot);
@@ -646,7 +647,7 @@ test("relaunch restores last folder, last file, themes, and HTML JS", async () =
     assertRestoredSnapshot(
       state,
       snapshot,
-      "after opening a folder+file, setting theme and HTML JS, and quitting, relaunch must restore last folder, last file, theme, and HTML JS preference",
+      "after opening a folder+file, setting theme and HTML JS, and quitting, relaunch must restore last folder, last file, and theme, and leave HTML JS off",
     );
   } finally {
     globalThis.document = prevDoc;

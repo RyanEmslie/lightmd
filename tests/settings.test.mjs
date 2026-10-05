@@ -25,7 +25,7 @@ const OPENER_ID =
   String.raw`(?:open|show|toggle)[-_]?settings|settings[-_]?(?:open|btn|button|toggle|trigger|control|menu)`;
 const OPEN_FN = String.raw`openSettings|showSettings|toggleSettings|openSettingsPanel`;
 
-const REPO_RE = /https?:\/\/github\.com\/clearly-bots\/lightmd\b/i;
+const REPO_RE = /https?:\/\/github\.com\/RyanEmslie\/lightmd\b/i;
 
 
 function loadSources() {
@@ -614,7 +614,7 @@ function aboutHasMitLicense(section) {
 function aboutHasRepoLink(section) {
   if (REPO_RE.test(section)) return true;
   if (
-    /<a\b[^>]*href=["'][^"']*github\.com\/clearly-bots\/lightmd[^"']*["']/i.test(
+    /<a\b[^>]*href=["'][^"']*github\.com\/RyanEmslie\/lightmd[^"']*["']/i.test(
       section,
     )
   ) {
@@ -961,6 +961,6 @@ test("about has version, MIT license, and repo link", () => {
   );
   assert.ok(
     aboutHasRepoLink(section),
-    "About must include a repo link (github.com/clearly-bots/lightmd)",
+    "About must include a repo link (github.com/RyanEmslie/lightmd)",
   );
 });

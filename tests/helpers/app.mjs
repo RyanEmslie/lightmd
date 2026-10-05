@@ -1,48 +1,64 @@
+// bootApp(): run the inline app glue from src/index.html in Node against the
+// fake DOM (parsed from the real markup) and the fake Tauri backend.
+//
+//   const rt = bootApp({ files: { "a.md": "# A" } });
+//   try {
+//     await rt.win.lightmdOpenFolder(rt.folderPath);
+//     await rt.win.lightmdOpenFile("a.md");
+//     rt.el("editor-tabs").querySelector('[role="tab"]').click();
+//     rt.files.get("a.md"); rt.writes; rt.invokes; rt.confirms;
+//     await rt.requestClose();  // the window's close button; true if it closed
+//   } finally {
+//     rt.cleanup();
+//   }
+//
+// editor.bundle.js does not run here: window.lightmdEditor is a stub that
+// writes #editor-buffer, and autosave is a counting stub unless you pass
+// realAutosave: true. The autosave settings (window.lightmdAutosave) and the
+// "save failed" UI (lightmdShowSaveError/lightmdClearSaveError) are always the
+// real ones from src/autosave.js, wired the way editor.js wires them. Drive
+// CodeMirror, layout and the bundle in the e2e suite (tests/e2e) instead.
 import assert from "node:assert/strict";
-import { mockEl, memoryStorage, clickAndAwait } from "./dom.mjs";
-import { inlineScripts, loadHtml } from "./source.mjs";
-import { createInvoke, normalizeRel } from "./tauri.mjs";
+import { pathToFileURL } from "node:url";
+import { join } from "node:path";
+import { clickAndAwait, createDocument, createWindow, memoryStorage } from "./dom.mjs";
+import { inlineScripts, loadHtml, srcDir } from "./source.mjs";
+import { buildTauriGlobals, createInvoke, normalizeRel } from "./tauri.mjs";
 
-const DEFAULT_TAGS = {
-  "open-folder": "button",
-  "new-note": "button",
-  "new-folder": "button",
-  save: "button",
-  "save-as": "button",
-  dirty: "span",
-  "status-path": "span",
-  "status-strip": "footer",
-  "file-list": "ul",
-  "editor-buffer": "textarea",
-  "explorer-sort": "select",
-  "show-extensions": "input",
-  "preview-body": "div",
-  preview: "section",
-  "html-viewer": "iframe",
-  "html-js": "input",
-  "html-js-warn": "div",
-  "html-js-chrome": "div",
-  "find-workspace-query": "input",
-  "find-workspace-run": "button",
-  "find-workspace-status": "span",
-  "find-workspace-results": "ul",
-  "editor-tabs": "div",
-  theme: "select",
-  "settings-theme": "select",
-};
+const autosaveModule = await import(pathToFileURL(join(srcDir, "autosave.js")).href);
 
+/**
+ * options:
+ *   folderPath     the workspace folder the Open Folder dialog returns
+ *                  (default "/tmp/lightmd-ws"); `files`/`folders` live under it
+ *   files, folders, workspaces, capabilities, onInvoke
+ *                  passed to createInvoke() (tests/helpers/tauri.mjs)
+ *   dialog         { open, save, confirm } answers; save defaults to
+ *                  `${folderPath}/fresh.md`, confirm to `confirmResult`
+ *   confirmResult  legacy alias for dialog.confirm (default false)
+ *   promptResult   what window.prompt() returns (default null)
+ *   storage        localStorage (default: a fresh in-memory one)
+ *   editor         methods merged over the window.lightmdEditor stub
+ *   realAutosave   wire src/autosave.js instead of counting stubs
+ *   html           markup to boot (default src/index.html)
+ */
 export function bootApp(options = {}) {
-  const files =
-    options.files instanceof Map ? options.files : new Map(options.files || []);
-  const folders = [...(options.folders || [])];
   const folderPath = options.folderPath || "/tmp/lightmd-ws";
-  const tagById = { ...DEFAULT_TAGS, ...(options.tagById || {}) };
   const storage = options.storage || memoryStorage();
-  const tauri = createInvoke({
-    files,
-    folders,
-    modifiedOrder: options.modifiedOrder,
+  const dialog = {
+    open: folderPath,
+    save: `${folderPath}/fresh.md`,
+    confirm: options.confirmResult ?? false,
+    ...(options.dialog || {}),
+  };
+  const backend = createInvoke({
+    root: folderPath,
+    files: options.files,
+    folders: options.folders,
+    workspaces: options.workspaces,
+    dialog,
     onInvoke: options.onInvoke,
+    ...(options.capabilities !== undefined ? { capabilities: options.capabilities } : {}),
   });
 
   const prev = {
@@ -50,144 +66,130 @@ export function bootApp(options = {}) {
     window: globalThis.window,
     localStorage: globalThis.localStorage,
     __TAURI__: globalThis.__TAURI__,
+    __TAURI_INTERNALS__: globalThis.__TAURI_INTERNALS__,
     confirm: globalThis.confirm,
     prompt: globalThis.prompt,
   };
 
-  const byId = new Map();
-  function el(id) {
-    const key = String(id);
-    if (!byId.has(key)) byId.set(key, mockEl(key, tagById[key] || "div"));
-    return byId.get(key);
-  }
-  for (const id of Object.keys(tagById)) el(id);
-  el("show-extensions").checked = true;
-  el("explorer-sort").value = "name";
-  el("dirty").hidden = true;
-  el("editor-buffer").value = "";
-  el("status-path").textContent = "";
-  el("preview-body").textContent = "";
-  el("html-viewer").hidden = true;
-  el("html-js").checked = false;
-  el("html-js-warn").hidden = true;
+  const html = options.html ?? loadHtml();
+  const doc = createDocument(html);
+  const win = createWindow(doc, { storage });
+  const el = (id) => doc.getElementById(String(id));
 
-  const doc = {
-    documentElement: mockEl("html", "html"),
-    body: mockEl("body", "body"),
-    getElementById(id) {
-      return el(id);
-    },
-    querySelector(sel) {
-      const m = String(sel || "").match(/^#([\w-]+)$/);
-      return m ? el(m[1]) : doc.body.querySelector(sel);
-    },
-    querySelectorAll(sel) {
-      return doc.body.querySelectorAll(sel);
-    },
-    createElement(tag) {
-      return mockEl("", tag);
-    },
-    createElementNS(_ns, tag) {
-      return mockEl("", tag);
-    },
-  };
-
-  const confirms = [];
   const prompts = [];
-  let confirmResult = options.confirmResult ?? false;
   let promptResult = options.promptResult ?? null;
-
   function confirmLike(message) {
-    confirms.push(String(message ?? ""));
-    return confirmResult;
+    backend.confirms.push(String(message ?? ""));
+    const said = backend.dialog.confirm;
+    return typeof said === "function" ? !!said(message) : !!said;
   }
-
-  const win = { document: doc };
   win.confirm = confirmLike;
   win.prompt = function (message, def) {
     prompts.push({ message: String(message ?? ""), def });
     return promptResult;
   };
-  win.__TAURI__ = {
-    core: { invoke: tauri.invoke },
-    dialog: {
-      async open() {
-        return folderPath;
-      },
-      async save() {
-        return `${folderPath}/fresh.md`;
-      },
-      async ask(message) {
-        return confirmLike(message);
-      },
-      async confirm(message) {
-        return confirmLike(message);
-      },
-    },
-  };
+  const globals = buildTauriGlobals(backend.invoke);
+  win.__TAURI__ = globals.__TAURI__;
+  win.__TAURI_INTERNALS__ = globals.__TAURI_INTERNALS__;
 
-  const state = {
-    cancelCalls: 0,
-    scheduleCalls: 0,
-    setDocCalls: [],
-  };
+  const state = { cancelCalls: 0, scheduleCalls: 0, setDocCalls: [] };
   Object.defineProperties(state, {
     confirmResult: {
-      get() {
-        return confirmResult;
-      },
-      set(value) {
-        confirmResult = value;
+      get: () => backend.dialog.confirm,
+      set: (value) => {
+        backend.dialog.confirm = value;
       },
     },
     promptResult: {
-      get() {
-        return promptResult;
-      },
-      set(value) {
+      get: () => promptResult,
+      set: (value) => {
         promptResult = value;
       },
     },
   });
 
+  const realAutosave = !!options.realAutosave;
+  if (realAutosave) autosaveModule.cancelAutosave();
   win.lightmdCancelAutosave = function () {
     state.cancelCalls += 1;
+    if (realAutosave) autosaveModule.cancelAutosave();
   };
   win.lightmdScheduleAutoSave = function () {
     state.scheduleCalls += 1;
+    if (realAutosave) autosaveModule.scheduleAutoSave();
   };
+  win.lightmdAutosave = autosaveModule.autosave;
+  if (typeof autosaveModule.showSaveError === "function") {
+    win.lightmdShowSaveError = autosaveModule.showSaveError;
+  }
+  if (typeof autosaveModule.clearSaveError === "function") {
+    win.lightmdClearSaveError = autosaveModule.clearSaveError;
+  }
   win.lightmdEditor = {
+    editable: false,
     setDoc(text) {
       const v = text ?? "";
       state.setDocCalls.push(v);
       el("editor-buffer").value = v;
     },
+    setEditable(on) {
+      win.lightmdEditor.editable = !!on;
+    },
+    ...(options.editor || {}),
   };
 
   globalThis.document = doc;
   globalThis.window = win;
   globalThis.localStorage = storage;
   globalThis.__TAURI__ = win.__TAURI__;
+  globalThis.__TAURI_INTERNALS__ = win.__TAURI_INTERNALS__;
   globalThis.confirm = confirmLike;
   globalThis.prompt = win.prompt;
 
-  const scripts = inlineScripts(loadHtml());
+  const scripts = inlineScripts(html);
   assert.ok(scripts.length > 0, "src/index.html must contain an inline script");
   for (const script of scripts) {
     const run = new Function(script);
     run();
   }
 
+  function restore(key) {
+    if (prev[key] === undefined) delete globalThis[key];
+    else globalThis[key] = prev[key];
+  }
+
   function cleanup() {
-    globalThis.document = prev.document;
-    globalThis.window = prev.window;
-    globalThis.localStorage = prev.localStorage;
-    if (prev.__TAURI__ === undefined) delete globalThis.__TAURI__;
-    else globalThis.__TAURI__ = prev.__TAURI__;
-    if (prev.confirm === undefined) delete globalThis.confirm;
-    else globalThis.confirm = prev.confirm;
-    if (prev.prompt === undefined) delete globalThis.prompt;
-    else globalThis.prompt = prev.prompt;
+    if (realAutosave) autosaveModule.cancelAutosave();
+    for (const key of Object.keys(prev)) restore(key);
+  }
+
+  // The window's close button. Runs the app's close-requested listeners like
+  // Tauri does and resolves to true when the window closed: it was destroyed,
+  // or nothing was listening so Tauri closed it directly.
+  async function requestClose() {
+    const listening = backend.listeners.filter((l) => l.event === "tauri://close-requested");
+    if (!listening.length) return true;
+    const destroys = () => backend.windowCalls.filter((c) => c.cmd === "destroy").length;
+    const before = destroys();
+    for (const l of listening) {
+      await win.__TAURI_INTERNALS__.runCallback(l.handler, {
+        event: "tauri://close-requested",
+        id: l.id,
+        payload: null,
+      });
+    }
+    return destroys() > before;
+  }
+
+  // Answer the in-app name dialog (New Folder) that askName() opened.
+  async function answerNameDialog(value) {
+    assert.equal(el("name-dialog").hidden, false, "precondition: the name dialog must be open");
+    if (value == null) {
+      await clickAndAwait(el("name-dialog-cancel"));
+      return;
+    }
+    el("name-dialog-input").value = String(value);
+    await clickAndAwait(el("name-dialog-ok"));
   }
 
   return {
@@ -195,17 +197,25 @@ export function bootApp(options = {}) {
     doc,
     el,
     storage,
-    files,
-    folders: tauri.folders,
-    invokes: tauri.invokes,
-    writes: tauri.writes,
-    attemptedWrites: tauri.attemptedWrites,
-    confirms,
+    backend,
+    invoke: backend.invoke,
+    files: backend.files,
+    get folders() {
+      return backend.folders;
+    },
+    invokes: backend.invokes,
+    writes: backend.writes,
+    attemptedWrites: backend.attemptedWrites,
+    confirms: backend.confirms,
+    dialogs: backend.dialogs,
     prompts,
     state,
     folderPath,
+    autosave: autosaveModule.autosave,
     cleanup,
     clickAndAwait,
+    answerNameDialog,
+    requestClose,
     normalizeRel,
   };
 }
