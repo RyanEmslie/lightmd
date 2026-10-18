@@ -142,7 +142,7 @@ test("pele theme variables map to LightMD preview tokens", async () => {
     "--pele-line": "var(--fg-muted)",
     "--pele-surface": "var(--bg-elevated)",
     "--pele-border": "var(--border)",
-    "--pele-accent": "var(--accent)",
+    "--pele-accent": "var(--link)",
     "--pele-critical": "var(--danger)",
     "--pele-error": "var(--danger)",
   };

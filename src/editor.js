@@ -29,6 +29,7 @@ import {
   bindPreviewLinks,
   invalidatePreviewImages,
 } from "./preview.js";
+import { renderMermaidDiagrams } from "./mermaid.js";
 import { isHtmlFile, showHtmlViewer, hideHtmlViewer } from "./html-viewer.js";
 import { bindOutlineAndScrollSync, updateOutline } from "./outline.js";
 import { bindRecentFolders, refreshEmptyState } from "./recent.js";
@@ -269,6 +270,7 @@ function setPreview(content, lineOffset = 0) {
   if (!target) return;
   target.replaceChildren();
   target.insertAdjacentHTML("afterbegin", renderPreview(content, next.lineOffset));
+  renderMermaidDiagrams(target);
   shownPreview = { ...next, first: target.firstChild };
   void rewritePreviewImages(target, docRoot(ws), ws && ws.relative);
 }

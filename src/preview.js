@@ -34,6 +34,26 @@ md.renderer.rules.image = function (tokens, idx, options, env, self) {
   return defaultImageRule(tokens, idx, options, env, self);
 };
 
+// ```mermaid fences become placeholders that renderMermaidDiagrams (mermaid.js)
+// fills with an SVG. The escaped source stays inside as a code block, so the
+// diagram still reads as text if it cannot be drawn.
+const defaultFenceRule = md.renderer.rules.fence;
+
+md.renderer.rules.fence = function (tokens, idx, options, env, self) {
+  const token = tokens[idx];
+  const lang = String(token.info || "").trim().split(/\s+/)[0];
+  if (lang.toLowerCase() !== "mermaid") {
+    return defaultFenceRule(tokens, idx, options, env, self);
+  }
+  const source = md.utils.escapeHtml(token.content.replace(/\n$/, ""));
+  const line = token.attrGet("data-line");
+  const lineAttr = line != null ? ` data-line="${md.utils.escapeHtml(line)}"` : "";
+  return (
+    `<div class="mermaid-diagram"${lineAttr} data-source="${source}">` +
+    `<pre class="mermaid-source"><code>${source}</code></pre></div>\n`
+  );
+};
+
 // Headings get unique GitHub-style slug ids. The prefix (GitHub's too) keeps a
 // heading such as "# Preview" from taking an app element's id.
 export const HEADING_ID_PREFIX = "user-content-";
