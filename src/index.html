@@ -849,6 +849,34 @@
         background: var(--bg-elevated);
       }
 
+      #preview-body .mermaid-diagram {
+        --pele-bg: var(--bg);
+        --pele-fg: var(--fg);
+        --pele-muted: var(--fg-muted);
+        --pele-line: var(--fg-muted);
+        --pele-surface: var(--bg-elevated);
+        --pele-surface-alt: var(--bg);
+        --pele-border: var(--border);
+        --pele-accent: var(--link);
+        --pele-critical: var(--danger);
+        --pele-error: var(--danger);
+        --pele-font: system-ui, sans-serif;
+        --pele-font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+        margin: 1em 0;
+        overflow-x: auto;
+      }
+
+      #preview-body .mermaid-diagram svg {
+        max-width: 100%;
+        height: auto;
+      }
+
+      #preview-body .mermaid-error {
+        color: var(--danger);
+        font-size: 0.9em;
+        white-space: pre-wrap;
+      }
+
       #preview-body[hidden] {
         display: none;
       }
